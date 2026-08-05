@@ -86,4 +86,4 @@ This table is an automation routing table, not a claim that every documentation 
 5. Review for collisions and update this table/evaluation cases.
 6. Let the scheduled online audit verify the external marker.
 
-For a completely new service, do not add a guessed mapping. Add the verified repository to the eligibility snapshot, manually dispatch the workflow with that repository name, and let `service_discovery` produce an abbreviation/package proposal for human approval. Only after approval is the mapping committed and full SDK creation started; provider creation follows the merged SDK revision.
+For a completely new service, add the verified repository to the eligibility snapshot and dispatch the workflow. `service_discovery` proposes a deterministic abbreviation/package name; the `sdk-proposal` reviewer either approves it or reruns with an explicit `service_key`. Full SDK creation then starts, and provider creation follows only after the SDK PR is merged.

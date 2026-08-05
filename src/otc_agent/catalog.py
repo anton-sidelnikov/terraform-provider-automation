@@ -86,10 +86,11 @@ class Catalog:
         if len(matches) > 1:
             keys = ", ".join(sorted(item.key for item in matches))
             raise CatalogError(f"documentation repository {repository!r} has multiple service variants; specify one of: {keys}")
+        proposed = propose_service_key(repository)
         return ServiceMapping(
-            key=repository,
-            sdk=None,
-            provider=None,
+            key=proposed,
+            sdk=proposed.replace("-", "_"),
+            provider=proposed,
             docs=repository,
             display_name=repository.replace("-", " ").title(),
             bootstrap=True,
@@ -99,6 +100,13 @@ class Catalog:
 def normalize(value: str) -> str:
     value = value.strip().lower().replace("_", "-").replace(" ", "-")
     return re.sub(r"-+", "-", value)
+
+
+def propose_service_key(repository: str) -> str:
+    words = [word for word in repository.split("-") if word]
+    if len(words) == 1:
+        return words[0]
+    return "".join(word[0] for word in words)
 
 
 def default_catalog_path() -> Path:

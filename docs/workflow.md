@@ -4,13 +4,13 @@
 
 Create these protected environments:
 
-| Environment | Reviewers | Secrets/variables | Purpose |
-|---|---|---|---|
-| `sdk-proposal` | SDK maintainers | none in the reference workflow | Approve retrieval and SDK candidate generation |
-| `provider-after-sdk-approval` | SDK + provider maintainers | approved SDK PR/SHA in the production continuation | Prove the SDK dependency barrier |
-| `online-evaluation` | platform/evaluation owners | `OTC_AGENT_EVAL_TOKEN`; `OTC_AGENT_EVAL_URL` variable | Evaluate the deployed service/test tenant |
-| `sdk-publish` | SDK maintainers | short-lived GitHub App credentials | Open an SDK draft PR |
-| `provider-publish` | provider maintainers | short-lived GitHub App credentials | Open a provider draft PR |
+| Environment                   | Reviewers                  | Secrets/variables                                     | Purpose                                                   |
+|-------------------------------|----------------------------|-------------------------------------------------------|-----------------------------------------------------------|
+| `sdk-proposal`                | SDK maintainers            | model gateway variables and `OTC_MODEL_API_KEY`       | Approve retrieval and SDK candidate generation            |
+| `provider-after-sdk-approval` | SDK + provider maintainers | model gateway variables and `OTC_MODEL_API_KEY`       | Verify merged SDK PR and approve provider generation      |
+| `online-evaluation`           | platform/evaluation owners | `OTC_AGENT_EVAL_TOKEN`; `OTC_AGENT_EVAL_URL` variable | Evaluate the deployed service/test tenant                 |
+| `sdk-publish`                 | SDK maintainers            | `OTC_APP_ID`, `OTC_APP_PRIVATE_KEY`                   | Mint a short-lived App token and open an SDK draft PR     |
+| `provider-publish`            | provider maintainers       | `OTC_APP_ID`, `OTC_APP_PRIVATE_KEY`                   | Mint a short-lived App token and open a provider draft PR |
 
 Enable branch protection and require `CI / offline-verification`, repository-native Go checks, evaluation gates, and CODEOWNERS review. Pin the default SDK/provider/docs branches to captured commit SHAs in each run; never continue from a moving branch.
 
@@ -18,9 +18,9 @@ Enable branch protection and require `CI / offline-verification`, repository-nat
 
 ### 1. Intake
 
-A maintainer dispatches `.github/workflows/agentic-change.yml` and must provide the exact repository slug from `opentelekomcloud-docs`, for example `api-gateway`. A service key is optional and is needed only when one documentation repository has several reviewed variants. The credential-free job validates size, characters, issue URL, api-ref eligibility, mapping, and offline quality. It writes `change-plan.json`. Issue text is passed through environment variables and quoted; it is never constructed into executable code.
+A maintainer dispatches `.github/workflows/agentic-change.yml` and provides the exact repository slug from `opentelekomcloud-docs`, for example `api-gateway`, plus a change description. There is no manual `kind`: trusted rules classify `feature` (new endpoint/operation), `fix` (changed parameter/request/response), `update` (added attributes/fields), or `new_service` (unmapped repository). Confidence below 0.70 blocks generation. A service key is optional and needed for ambiguous variants or to override a proposed bootstrap abbreviation.
 
-If the repository is api-ref eligible but absent from the mapping table, the plan enters `service_discovery`. SDK and provider names are intentionally `null` until a maintainer approves abbreviations, endpoint/service boundaries, API versions, and package layout. The next stage creates the complete SDK service and tests. Provider generation remains locked behind the normal SDK merge/approval barrier.
+If the repository is api-ref eligible but absent from the mapping table, the plan enters `service_discovery` and proposes a deterministic abbreviation (one word stays intact; a hyphenated service uses its initials). Approval of `sdk-proposal` approves that proposal; a maintainer can instead provide `service_key`. The next stage creates the complete SDK service and tests. Provider generation remains locked behind the normal SDK merge/approval barrier.
 
 ### 2. Evidence retrieval
 
@@ -39,19 +39,18 @@ The contract analyst first produces a typed contract and gap list. Missing or co
 
 Run trusted commands selected by the service adapter (not by a model), normally repository-native format, vet, lint, unit tests, and the smallest safe acceptance subset. Bound each command by time, CPU, memory, output size, and network policy. A repair loop gets diagnostics and the original evidence, with at most two attempts.
 
-The publisher verifies the candidate artifact and opens a draft SDK PR. The PR includes source citations, assumptions, test evidence, risk, and the automation run URL.
+The generator queries only revision-pinned `api-ref/**/*.rst`, requires citations from retrieved chunks, accepts only a unified diff under `openstack/<sdk>/**`, applies it in a disposable checkout, runs fixed `gofmt`, `go test`, and `go vet` commands, and records a SHA-256 evidence manifest. The `sdk-publish` job independently verifies the digest/path scope, mints a one-hour repository-scoped GitHub App token, pushes `agent/<kind>-<service>-<run-id>`, and opens a draft SDK PR.
 
 ### 4. SDK approval continuation
 
-An SDK PR merge emits a signed `repository_dispatch` event or a maintainer supplies the merged PR URL and exact commit SHA through a protected continuation workflow. Validate that:
+A maintainer dispatches `.github/workflows/provider-change.yml` with the merged SDK PR number and the original repository/service/description. The workflow fetches the PR and validates that:
 
 - the repository is exactly `opentelekomcloud/gophertelekomcloud`;
 - the commit is reachable from the protected default branch;
-- required SDK checks passed;
-- the PR has required human approval;
-- the service mapping and run ID match the original plan.
+- the PR was authored by a bot from an `agent/*` branch;
+- the service mapping and classification match the independently recreated plan.
 
-This event, not a model assertion or mere job success, unlocks provider generation.
+The SDK PR body contains machine-readable automation metadata. Its mapping and independent classification must match the provider plan. A verified merge, not a model assertion or mere job success, unlocks provider generation.
 
 ### 5. Provider proposal
 
@@ -61,19 +60,11 @@ Required checks include schema types and validators, create/read/update/delete s
 
 Open a separate draft provider PR that links the merged SDK PR and pins the SDK revision. Do not bundle unrelated formatting or dependency updates.
 
-## Patch worker deployment contract
+## Model gateway configuration
 
-The checked-in workflow stops at evidence packaging because a safe patch worker needs organization-specific model gateway, sandbox, artifact signing, and GitHub App identities. Implement the worker behind these stable operations:
+Both generation environments require `OTC_MODEL_BASE_URL` (an OpenAI-compatible base ending in `/v1`), `OTC_MODEL_NAME`, and secret `OTC_MODEL_API_KEY`. Optional price variables are `OTC_MODEL_INPUT_USD_PER_MILLION` and `OTC_MODEL_OUTPUT_USD_PER_MILLION`. The adapter uses JSON mode, temperature zero, bounded retries, token/cost budgets, and never logs prompts or credentials.
 
-```text
-POST /v1/runs                  create from validated plan digest
-POST /v1/runs/{id}/sdk        propose/validate SDK candidate
-POST /v1/runs/{id}/approve    attach verified SDK PR and SHA
-POST /v1/runs/{id}/provider   propose/validate provider candidate
-GET  /v1/runs/{id}            state, budgets, citations, checks
-```
-
-Use idempotency key `{automation_sha}:{github_run_id}:{stage}`. Every response returns run ID, state version, trace ID, artifact digest, cost/tokens, and next allowed transitions. The Actions job uploads only signed/digested artifacts; a separate publisher downloads and verifies them.
+PR generation runs as ephemeral Actions jobs, so no separate patch-worker service is required for the demo. `deploy/` deploys only the stateless planning/metrics API used by online evaluation.
 
 ## Reproducibility
 
@@ -90,4 +81,4 @@ Use idempotency key `{automation_sha}:{github_run_id}:{stage}`. Every response r
 - newly discovered or removed API-reference repositories;
 - all API-reference repositories that still have no SDK/provider mapping.
 
-Discovery does not invent abbreviations or start generation automatically. For a new repository, review the API relevance, add only its slug to `eligible_docs_repositories`, merge that catalog PR, and manually launch `Governed OTC change` with the repository slug. The bootstrap workflow then owns SDK-first creation.
+Discovery does not start generation automatically. For a new repository, review the API relevance, add only its slug to `eligible_docs_repositories`, merge that catalog PR, and manually launch `Generate SDK pull request` with the repository slug. The bootstrap workflow proposes an abbreviation and then owns SDK-first creation.

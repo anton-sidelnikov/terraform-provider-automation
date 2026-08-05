@@ -8,7 +8,7 @@ The central invariant is:
 
 Authoritative upstreams: [gophertelekomcloud](https://github.com/opentelekomcloud/gophertelekomcloud), [terraform-provider-opentelekomcloud](https://github.com/opentelekomcloud/terraform-provider-opentelekomcloud), and the [OpenTelekomCloud documentation organization](https://github.com/opentelekomcloud-docs).
 
-The repository currently implements the control plane, secure intake, mapping catalog, deterministic state machine, health/metrics API, failure policy, and evaluation harness. The model-backed patch worker is deliberately an isolated deployment component: it may propose file content in a disposable worktree, but it cannot choose repositories, execute model-supplied commands, access production credentials, merge changes, or bypass approval environments.
+The repository implements the control plane, secure intake, automatic change classification, api-ref retrieval, an OpenAI-compatible patch worker, path-confined diff application, repository-native validation, evidence manifests, GitHub App publishers, health/metrics API, failure policy, and evaluation harness. Model jobs cannot access publishing credentials, choose repositories, execute model-supplied commands, merge changes, or bypass approval environments.
 
 ## Quick start
 
@@ -19,7 +19,6 @@ make check
 
 PYTHONPATH=src python -m otc_agent.cli plan \
   --docs-repository modelarts \
-  --kind new_service \
   --description "Create complete SDK and provider support from the API reference" \
   --output build/change-plan.json
 
@@ -32,17 +31,17 @@ The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometh
 
 1. Validate and quarantine the untrusted request and the manually selected documentation repository.
 2. Resolve the reviewed SDK/provider/docs mapping. Only repositories containing `api-ref/source/index.rst` are eligible.
-3. If no mapping exists, enter service bootstrap: approve names/boundaries, then create the SDK service completely before any provider work.
-4. Retrieve revision-pinned API evidence and APIGW/FGS examples.
-5. Propose the SDK implementation and its request/response, error, fixture, and pagination tests.
-6. Run SDK format, vet, lint, unit, and targeted acceptance checks; preserve diagnostics.
-7. Require SDK reviewer approval and record the exact SDK revision.
-8. Propose provider resources/data sources, registration, unit/acceptance tests, documentation, and a Reno note.
-9. Run provider validation and offline regression evaluation.
-10. Run credentialed online evaluation in a protected GitHub environment.
-11. Produce two reviewable PRs and an evidence manifest; never auto-merge.
+3. Independently classify the request: `feature` for a new endpoint/operation, `fix` for changed parameters/request/response, `update` for additive attributes, and `new_service` for an unmapped service.
+4. If no mapping exists, propose an abbreviation from the repository slug and require approval before creating the SDK service completely.
+5. Retrieve revision-pinned API evidence and APIGW/FGS examples.
+6. Generate the SDK diff and its request/response, error, fixture, and pagination tests.
+7. Run SDK format, vet, and unit checks; preserve diagnostics and patch digest.
+8. After publisher approval, mint a repository-scoped App token and open a draft SDK PR.
+9. After that PR is merged, manually continue with the provider workflow, which verifies SDK PR metadata and commit SHA.
+10. Generate provider resources/data sources, registration, acceptance tests, documentation, and a Reno note; pin the SDK commit.
+11. Validate and open a separate draft provider PR; never auto-merge.
 
-The included `Governed OTC change` workflow executes the safe intake and repository/evidence gates. The isolated patch worker contract and continuation events are described in [docs/workflow.md](docs/workflow.md). This separation prevents untrusted issue text from entering a job that holds repository-write or cloud credentials.
+`Generate SDK pull request` performs intake through draft SDK PR. After the SDK PR is reviewed and merged, `Generate provider pull request` verifies it and performs the provider half. See [docs/workflow.md](docs/workflow.md). This separation prevents untrusted issue/model content from entering a job that holds repository-write credentials.
 
 ## Design documents
 

@@ -9,7 +9,10 @@ from pathlib import Path
 from .catalog import Catalog, default_catalog_path
 from .domain import ChangeKind, ChangeRequest
 from .evals import run_evaluation
+from .generation import generate_provider_candidate, generate_sdk_candidate, provider_publish_policy
+from .model import OpenAICompatibleModel
 from .orchestrator import Planner
+from .patching import provider_policy, sdk_policy, validate_patch
 from .service import serve
 from .telemetry import configure_logging
 
@@ -20,7 +23,7 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan")
     plan.add_argument("--service", help="Optional reviewed service key; required only for ambiguous mapped variants")
-    plan.add_argument("--kind", choices=[item.value for item in ChangeKind], required=True)
+    plan.add_argument("--kind", choices=[item.value for item in ChangeKind], help="Legacy hint; classification is independent")
     plan.add_argument("--description", required=True)
     plan.add_argument("--docs-repository")
     plan.add_argument("--issue-url")
@@ -34,6 +37,24 @@ def _parser() -> argparse.ArgumentParser:
     server = sub.add_parser("serve")
     server.add_argument("--host", default="127.0.0.1")
     server.add_argument("--port", type=int, default=8080)
+    sdk = sub.add_parser("generate-sdk")
+    sdk.add_argument("--plan", type=Path, required=True)
+    sdk.add_argument("--sdk-root", type=Path, required=True)
+    sdk.add_argument("--docs-root", type=Path, required=True)
+    sdk.add_argument("--output-dir", type=Path, required=True)
+    provider = sub.add_parser("generate-provider")
+    provider.add_argument("--plan", type=Path, required=True)
+    provider.add_argument("--provider-root", type=Path, required=True)
+    provider.add_argument("--sdk-root", type=Path, required=True)
+    provider.add_argument("--docs-root", type=Path, required=True)
+    provider.add_argument("--sdk-revision", required=True)
+    provider.add_argument("--sdk-pr-url", required=True)
+    provider.add_argument("--output-dir", type=Path, required=True)
+    validate = sub.add_parser("validate-patch")
+    validate.add_argument("--stage", choices=("sdk", "provider"), required=True)
+    validate.add_argument("--service", required=True)
+    validate.add_argument("--patch", type=Path, required=True)
+    validate.add_argument("--allow-dependency-files", action="store_true")
     return parser
 
 
@@ -48,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         plan = Planner(catalog).plan(
             ChangeRequest(
                 service=args.service,
-                kind=ChangeKind(args.kind),
+                kind=ChangeKind(args.kind) if args.kind else None,
                 description=args.description,
                 docs_repository=args.docs_repository,
                 issue_url=args.issue_url,
@@ -60,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
             args.output.write_text(output, encoding="utf-8")
         else:
             sys.stdout.write(output)
-        return 0
+        return 0 if plan.status.value != "blocked" else 3
     if args.command == "eval":
         endpoint = os.environ.get("OTC_AGENT_EVAL_URL") if args.mode == "online" else None
         baseline_score = None
@@ -80,6 +101,41 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if report.passed else 2
     if args.command == "serve":
         serve(args.host, args.port, catalog)
+        return 0
+    if args.command == "generate-sdk":
+        plan_value = json.loads(args.plan.read_text(encoding="utf-8"))
+        record = generate_sdk_candidate(
+            plan=plan_value,
+            sdk_root=args.sdk_root,
+            docs_root=args.docs_root,
+            output_dir=args.output_dir,
+            model=OpenAICompatibleModel.from_environment(),
+        )
+        print(json.dumps(record.as_dict(), sort_keys=True))
+        return 0
+    if args.command == "generate-provider":
+        plan_value = json.loads(args.plan.read_text(encoding="utf-8"))
+        record = generate_provider_candidate(
+            plan=plan_value,
+            provider_root=args.provider_root,
+            sdk_root=args.sdk_root,
+            docs_root=args.docs_root,
+            sdk_revision=args.sdk_revision,
+            sdk_pr_url=args.sdk_pr_url,
+            output_dir=args.output_dir,
+            model=OpenAICompatibleModel.from_environment(),
+        )
+        print(json.dumps(record.as_dict(), sort_keys=True))
+        return 0
+    if args.command == "validate-patch":
+        if args.stage == "sdk":
+            policy = sdk_policy(args.service)
+        elif args.allow_dependency_files:
+            policy = provider_publish_policy(args.service)
+        else:
+            policy = provider_policy(args.service)
+        paths = validate_patch(args.patch.read_text(encoding="utf-8"), policy)
+        print(json.dumps({"status": "ok", "paths": paths}))
         return 0
     return 2
 

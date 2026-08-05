@@ -46,7 +46,7 @@ def serve(host: str, port: int, catalog: Catalog) -> None:
                 raw = json.loads(self.rfile.read(length))
                 request = ChangeRequest(
                     service=raw.get("service"),
-                    kind=ChangeKind(raw["kind"]),
+                    kind=ChangeKind(raw["kind"]) if raw.get("kind") else None,
                     description=raw["description"],
                     issue_url=raw.get("issue_url"),
                     docs_repository=raw.get("docs_repository"),
