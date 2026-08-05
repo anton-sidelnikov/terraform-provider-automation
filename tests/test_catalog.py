@@ -30,8 +30,8 @@ class CatalogTests(unittest.TestCase):
     def test_unmapped_api_repository_enters_bootstrap(self) -> None:
         mapping = self.catalog.resolve_documentation("modelarts")
         self.assertTrue(mapping.bootstrap)
-        self.assertIsNone(mapping.sdk)
-        self.assertIsNone(mapping.provider)
+        self.assertEqual(mapping.sdk, "modelarts")
+        self.assertEqual(mapping.provider, "modelarts")
 
     def test_only_api_ref_repositories_are_mapped(self) -> None:
         for mapping in self.catalog.mappings:

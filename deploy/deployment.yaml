@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otc-provider-agent
+  labels:
+    app.kubernetes.io/name: otc-provider-agent
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otc-provider-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otc-provider-agent
+    spec:
+      serviceAccountName: otc-provider-agent
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/anton-sidelnikov/terraform-provider-automation:v0.1.0
+          imagePullPolicy: IfNotPresent
+          args: ["serve", "--host", "0.0.0.0", "--port", "8080"]
+          envFrom:
+            - configMapRef:
+                name: otc-provider-agent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+

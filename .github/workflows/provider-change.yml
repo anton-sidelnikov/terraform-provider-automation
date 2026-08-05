@@ -1,30 +1,30 @@
-name: Generate SDK pull request
+name: Generate provider pull request
 
 on:
   workflow_dispatch:
     inputs:
+      sdk_pr_number:
+        description: Merged agent-generated gophertelekomcloud PR number
+        required: true
+        type: number
       docs_repository:
         description: Exact repository slug in opentelekomcloud-docs
         required: true
         type: string
       service_key:
-        description: Optional reviewed abbreviation; auto-proposed for an unmapped service
+        description: Same service key used by the SDK workflow
         required: false
         type: string
       description:
-        description: Describe the API change; kind is classified automatically
+        description: Same API change description used by the SDK workflow
         required: true
-        type: string
-      issue_url:
-        description: Optional github.com issue URL
-        required: false
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: sdk-change-${{ inputs.docs_repository }}
+  group: provider-change-${{ inputs.docs_repository }}
   cancel-in-progress: false
 
 env:
@@ -33,15 +33,16 @@ env:
   PYTHONHASHSEED: "0"
 
 jobs:
-  intake:
+  verify-sdk:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
+      sdk_sha: ${{ steps.sdk.outputs.sha }}
+      sdk_pr_url: ${{ steps.sdk.outputs.url }}
       sdk: ${{ steps.fields.outputs.sdk }}
       provider: ${{ steps.fields.outputs.provider }}
       docs: ${{ steps.fields.outputs.docs }}
       kind: ${{ steps.fields.outputs.kind }}
-      bootstrap: ${{ steps.fields.outputs.bootstrap }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -50,59 +51,69 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: ""
-      - name: Run credential-free gates
-        run: make check
-      - name: Classify and create immutable plan
+      - name: Recreate and independently classify plan
         env:
+          PYTHONPATH: src
           REQUEST_SERVICE_KEY: ${{ inputs.service_key }}
           REQUEST_DOCS_REPOSITORY: ${{ inputs.docs_repository }}
           REQUEST_DESCRIPTION: ${{ inputs.description }}
-          REQUEST_ISSUE_URL: ${{ inputs.issue_url }}
-          PYTHONPATH: src
         run: >-
           python -m otc_agent.cli plan
           --service "$REQUEST_SERVICE_KEY"
           --description "$REQUEST_DESCRIPTION"
           --docs-repository "$REQUEST_DOCS_REPOSITORY"
-          --issue-url "$REQUEST_ISSUE_URL"
           --output build/change-plan.json
+      - name: Fetch and verify merged SDK PR
+        id: sdk
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.sdk_pr_number }}
+        run: |
+          gh api "repos/opentelekomcloud/gophertelekomcloud/pulls/${PR_NUMBER}" > build/sdk-pr.json
+          python scripts/verify_sdk_pr.py --pull-request build/sdk-pr.json --plan build/change-plan.json >> "$GITHUB_OUTPUT"
       - name: Export validated fields
         id: fields
         run: |
-          python -c 'import json; p=json.load(open("build/change-plan.json")); print("sdk="+p["mapping"]["sdk"]); print("provider="+p["mapping"]["provider"]); print("docs="+p["mapping"]["docs"]); print("kind="+p["classification"]["kind"]); print("bootstrap="+str(p["mapping"]["bootstrap"]).lower())' >> "$GITHUB_OUTPUT"
-          python -c 'import json; p=json.load(open("build/change-plan.json")); c=p["classification"]; print(f"## Classification: `{c['"'"'kind'"'"']}` ({c['"'"'confidence'"'"']})")' >> "$GITHUB_STEP_SUMMARY"
+          python -c 'import json; p=json.load(open("build/change-plan.json")); print("sdk="+p["mapping"]["sdk"]); print("provider="+p["mapping"]["provider"]); print("docs="+p["mapping"]["docs"]); print("kind="+p["classification"]["kind"])' >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sdk-plan-${{ github.run_id }}
+          name: provider-plan-${{ github.run_id }}
           path: |
             build/change-plan.json
-            build/offline-eval.json
+            build/sdk-pr.json
           if-no-files-found: error
           retention-days: 90
 
   generate:
-    needs: intake
+    needs: verify-sdk
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    environment: sdk-proposal
+    timeout-minutes: 60
+    environment: provider-after-sdk-approval
     outputs:
-      base_sha: ${{ steps.revisions.outputs.sdk }}
+      base_sha: ${{ steps.revisions.outputs.provider }}
     steps:
       - name: Check out automation
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: automation
           persist-credentials: false
-      - name: Check out SDK base
+      - name: Check out provider base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: opentelekomcloud/terraform-provider-opentelekomcloud
+          path: workspace/provider
+          persist-credentials: false
+      - name: Check out approved SDK merge
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: opentelekomcloud/gophertelekomcloud
+          ref: ${{ needs.verify-sdk.outputs.sdk_sha }}
           path: workspace/sdk
           persist-credentials: false
       - name: Check out API reference
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: opentelekomcloud-docs/${{ needs.intake.outputs.docs }}
+          repository: opentelekomcloud-docs/${{ needs.verify-sdk.outputs.docs }}
           path: workspace/docs
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -112,17 +123,15 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: workspace/sdk/go.sum
+          cache-dependency-path: workspace/provider/go.sum
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: sdk-plan-${{ github.run_id }}
+          name: provider-plan-${{ github.run_id }}
           path: evidence
-      - name: Capture immutable source revisions
+      - name: Capture immutable provider base
         id: revisions
-        run: |
-          echo "sdk=$(git -C workspace/sdk rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "docs=$(git -C workspace/docs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Generate and validate SDK candidate
+        run: echo "provider=$(git -C workspace/provider rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Generate and validate provider candidate
         env:
           PYTHONPATH: automation/src
           OTC_MODEL_BASE_URL: ${{ vars.OTC_MODEL_BASE_URL }}
@@ -131,28 +140,30 @@ jobs:
           OTC_MODEL_INPUT_USD_PER_MILLION: ${{ vars.OTC_MODEL_INPUT_USD_PER_MILLION }}
           OTC_MODEL_OUTPUT_USD_PER_MILLION: ${{ vars.OTC_MODEL_OUTPUT_USD_PER_MILLION }}
         run: >-
-          python -m otc_agent.cli generate-sdk
+          python -m otc_agent.cli generate-provider
           --plan evidence/build/change-plan.json
+          --provider-root workspace/provider
           --sdk-root workspace/sdk
           --docs-root workspace/docs
+          --sdk-revision "${{ needs.verify-sdk.outputs.sdk_sha }}"
+          --sdk-pr-url "${{ needs.verify-sdk.outputs.sdk_pr_url }}"
           --output-dir generated
-      - name: Upload verified SDK patch and evidence
-        if: success()
+      - name: Upload verified provider patch and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sdk-candidate-${{ github.run_id }}
+          name: provider-candidate-${{ github.run_id }}
           path: |
-            generated/sdk.patch
-            generated/sdk-evidence.json
+            generated/provider.patch
+            generated/provider-evidence.json
             evidence/build/change-plan.json
           if-no-files-found: error
           retention-days: 90
 
   publish:
-    needs: [intake, generate]
+    needs: [verify-sdk, generate]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    environment: sdk-publish
+    environment: provider-publish
     steps:
       - name: Mint repository-scoped App token
         id: app-token
@@ -161,19 +172,19 @@ jobs:
           app-id: ${{ vars.OTC_APP_ID }}
           private-key: ${{ secrets.OTC_APP_PRIVATE_KEY }}
           owner: opentelekomcloud
-          repositories: gophertelekomcloud
+          repositories: terraform-provider-opentelekomcloud
       - name: Check out automation
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: automation
           persist-credentials: false
-      - name: Check out exact SDK base with App identity
+      - name: Check out exact provider base with App identity
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: opentelekomcloud/gophertelekomcloud
+          repository: opentelekomcloud/terraform-provider-opentelekomcloud
           ref: ${{ needs.generate.outputs.base_sha }}
           token: ${{ steps.app-token.outputs.token }}
-          path: workspace/sdk
+          path: workspace/provider
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -181,36 +192,37 @@ jobs:
           cache: ""
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: sdk-candidate-${{ github.run_id }}
+          name: provider-candidate-${{ github.run_id }}
           path: candidate
       - name: Verify candidate digest and path scope
         env:
           PYTHONPATH: automation/src
-          SERVICE: ${{ needs.intake.outputs.sdk }}
+          SERVICE: ${{ needs.verify-sdk.outputs.provider }}
         run: |
-          python -c 'import hashlib,json; e=json.load(open("candidate/generated/sdk-evidence.json")); p=open("candidate/generated/sdk.patch","rb").read(); assert hashlib.sha256(p).hexdigest()==e["patch_sha256"]'
-          python -m otc_agent.cli validate-patch --stage sdk --service "$SERVICE" --patch candidate/generated/sdk.patch
+          python -c 'import hashlib,json; e=json.load(open("candidate/generated/provider-evidence.json")); p=open("candidate/generated/provider.patch","rb").read(); assert hashlib.sha256(p).hexdigest()==e["patch_sha256"]'
+          python -m otc_agent.cli validate-patch --stage provider --allow-dependency-files --service "$SERVICE" --patch candidate/generated/provider.patch
       - name: Apply, commit, push, and open draft PR
         id: pr
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-          KIND: ${{ needs.intake.outputs.kind }}
-          SERVICE: ${{ needs.intake.outputs.sdk }}
+          KIND: ${{ needs.verify-sdk.outputs.kind }}
+          SERVICE: ${{ needs.verify-sdk.outputs.provider }}
           DESCRIPTION: ${{ inputs.description }}
+          SDK_PR_URL: ${{ needs.verify-sdk.outputs.sdk_pr_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          git -C workspace/sdk switch -c "agent/${KIND}-${SERVICE}-${GITHUB_RUN_ID}"
-          git -C workspace/sdk apply --check "$GITHUB_WORKSPACE/candidate/generated/sdk.patch"
-          git -C workspace/sdk apply "$GITHUB_WORKSPACE/candidate/generated/sdk.patch"
-          git -C workspace/sdk diff --check
-          git -C workspace/sdk config user.name "${APP_SLUG}[bot]"
-          git -C workspace/sdk config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
-          git -C workspace/sdk add --all
-          git -C workspace/sdk commit -m "${SERVICE}: ${KIND} generated API support"
-          git -C workspace/sdk push --set-upstream origin HEAD
-          python automation/scripts/render_pr_body.py --plan candidate/evidence/build/change-plan.json --evidence candidate/generated/sdk-evidence.json --run-url "$RUN_URL" --output candidate/pr-body.md
+          git -C workspace/provider switch -c "agent/${KIND}-${SERVICE}-${GITHUB_RUN_ID}"
+          git -C workspace/provider apply --check "$GITHUB_WORKSPACE/candidate/generated/provider.patch"
+          git -C workspace/provider apply "$GITHUB_WORKSPACE/candidate/generated/provider.patch"
+          git -C workspace/provider diff --check
+          git -C workspace/provider config user.name "${APP_SLUG}[bot]"
+          git -C workspace/provider config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
+          git -C workspace/provider add --all
+          git -C workspace/provider commit -m "${SERVICE}: ${KIND} generated provider support"
+          git -C workspace/provider push --set-upstream origin HEAD
+          python automation/scripts/render_pr_body.py --plan candidate/evidence/build/change-plan.json --evidence candidate/generated/provider-evidence.json --run-url "$RUN_URL" --sdk-pr-url "$SDK_PR_URL" --output candidate/pr-body.md
           title=$(python -c 'import os; print(f"[{os.environ['"'"'SERVICE'"'"'].upper()}] {os.environ['"'"'KIND'"'"']}: {os.environ['"'"'DESCRIPTION'"'"'][:120]}")')
-          url=$(gh pr create --repo opentelekomcloud/gophertelekomcloud --base main --head "agent/${KIND}-${SERVICE}-${GITHUB_RUN_ID}" --draft --title "$title" --body-file candidate/pr-body.md)
+          url=$(gh pr create --repo opentelekomcloud/terraform-provider-opentelekomcloud --base main --head "agent/${KIND}-${SERVICE}-${GITHUB_RUN_ID}" --draft --title "$title" --body-file candidate/pr-body.md)
           echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "## SDK draft PR: $url" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Provider draft PR: $url" >> "$GITHUB_STEP_SUMMARY"

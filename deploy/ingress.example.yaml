@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: otc-provider-agent
+  namespace: otc-provider-agent
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "5"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [agent.example.invalid]
+      secretName: otc-provider-agent-tls
+  rules:
+    - host: agent.example.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: otc-provider-agent
+                port:
+                  name: http
+

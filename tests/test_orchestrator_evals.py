@@ -13,7 +13,7 @@ class OrchestratorAndEvalTests(unittest.TestCase):
         cls.catalog = Catalog.load(default_catalog_path())
 
     def test_sdk_gate_precedes_provider(self) -> None:
-        plan = Planner(self.catalog).plan(ChangeRequest("apigw", ChangeKind.FEATURE, "Add a documented resource"))
+        plan = Planner(self.catalog).plan(ChangeRequest("apigw", ChangeKind.FEATURE, "Add a documented endpoint"))
         self.assertEqual(plan.status, RunStatus.PLANNED)
         self.assertLess(plan.stages.index("sdk_approval"), plan.stages.index("provider_generate"))
         self.assertIn("api-ref", plan.assumptions[0])
@@ -25,7 +25,18 @@ class OrchestratorAndEvalTests(unittest.TestCase):
         self.assertTrue(plan.mapping.bootstrap)
         self.assertIn("service_discovery", plan.stages)
         self.assertLess(plan.stages.index("sdk_approval"), plan.stages.index("provider_generate"))
-        self.assertIn("<reviewed-new-sdk-abbreviation>", plan.required_outputs[0])
+        self.assertIn("openstack/modelarts/", plan.required_outputs[0])
+
+    def test_bootstrap_service_key_rejects_path_syntax(self) -> None:
+        with self.assertRaises(ValueError):
+            Planner(self.catalog).plan(
+                ChangeRequest(
+                    "../modelarts",
+                    None,
+                    "Create complete SDK support",
+                    docs_repository="modelarts",
+                )
+            )
 
     def test_offline_evaluation_passes(self) -> None:
         report = run_evaluation(Path("evals/offline.jsonl"), self.catalog, mode="offline")

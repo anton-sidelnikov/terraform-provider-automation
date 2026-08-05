@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .budget import Budget
-from .catalog import Catalog
+from .catalog import Catalog, CatalogError
+from .classification import classify_change
 from .domain import ChangePlan, ChangeRequest, RunStatus, Stage
 from .security import validate_request
 from .telemetry import Metrics, span
@@ -35,17 +37,40 @@ class Planner:
         budget = budget or Budget()
         with span(Stage.INTAKE, trace_id=run_id):
             assessment = validate_request(request)
-            mapping = (
-                self.catalog.resolve(request.service, request.docs_repository)
-                if request.service
-                else self.catalog.resolve_documentation(request.docs_repository or "")
-            )
+            if request.service:
+                try:
+                    mapping = self.catalog.resolve(request.service, request.docs_repository)
+                except CatalogError:
+                    if not request.docs_repository:
+                        raise
+                    mapping = self.catalog.resolve_documentation(request.docs_repository or "")
+                    if not mapping.bootstrap:
+                        raise
+                    safe_key = request.service.strip()
+                    if not re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", safe_key):
+                        raise ValueError("bootstrap service_key must be an exact lower-case slug")
+                    mapping = replace(
+                        mapping,
+                        key=safe_key,
+                        sdk=safe_key.replace("-", "_"),
+                        provider=safe_key,
+                    )
+            else:
+                mapping = self.catalog.resolve_documentation(request.docs_repository or "")
+            classification = classify_change(request, mapping)
+            request = replace(request, kind=classification.kind)
         warnings: list[str] = []
         if assessment.injection_signals:
             warnings.append(
                 "Input contains prompt-injection indicators; retrieval is quarantined and generated patches require security review."
             )
             self.metrics.increment("security_signals_total", service=mapping.sdk or mapping.docs)
+        status = RunStatus.PLANNED
+        if classification.confidence < 0.70:
+            status = RunStatus.BLOCKED
+            warnings.append(
+                "Change type is ambiguous. Clarify whether this is a new endpoint, an existing contract fix, or additive attributes."
+            )
         stages = [stage.value for stage in Stage if stage != Stage.SERVICE_DISCOVERY]
         if mapping.bootstrap:
             stages.insert(stages.index(Stage.SDK_PLAN.value), Stage.SERVICE_DISCOVERY.value)
@@ -76,12 +101,13 @@ class Planner:
         plan = ChangePlan(
             request=request,
             mapping=mapping,
-            status=RunStatus.PLANNED,
+            status=status,
             stages=stages,
             required_outputs=outputs,
             assumptions=assumptions,
             warnings=warnings,
             budget=budget.snapshot(),
+            classification=classification.as_dict(),
         )
         elapsed_ms = (time.monotonic() - started) * 1000
         metric_service = mapping.sdk or mapping.docs

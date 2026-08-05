@@ -11,7 +11,7 @@ Runs on every pull request with no model, network, cloud credentials, or reposit
 - prompt-injection and oversized/control-character handling;
 - stage ordering, especially the SDK approval barrier;
 - budgets, retry classification, redaction, URL/path restrictions, and failure-state transitions;
-- golden contract extraction, patch structure, citation completeness, documentation sections, and release-note shape once a patch worker is connected;
+- classification semantics, patch path confinement, citation provenance, documentation sections, and release-note shape;
 - replayed model/retrieval/tool timeouts and malformed outputs.
 
 The current gate is `score >= 0.90`; security and SDK-ordering cases are critical and should become non-compensating checks as the dataset grows.
@@ -49,4 +49,3 @@ OTC_AGENT_EVAL_URL=https://agent.example.test \
 OTC_AGENT_EVAL_TOKEN=... \
 make online-eval
 ```
-

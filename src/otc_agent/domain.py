@@ -37,7 +37,7 @@ class RunStatus(StrEnum):
 @dataclass(frozen=True)
 class ChangeRequest:
     service: str | None
-    kind: ChangeKind
+    kind: ChangeKind | None
     description: str
     issue_url: str | None = None
     docs_repository: str | None = None
@@ -78,6 +78,7 @@ class ChangePlan:
     assumptions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     budget: dict[str, Any] = field(default_factory=dict)
+    classification: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
