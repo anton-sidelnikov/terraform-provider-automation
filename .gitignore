@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.coverage
+.pytest_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+.env
+workspace/
+.idea/
+*.iml

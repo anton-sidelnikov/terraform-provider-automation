@@ -1,0 +1,3 @@
+{"id":"online-apigw","input":{"service":"api-gateway","kind":"feature","description":"Add support for a documented API Gateway resource"},"expected":{"sdk":"apigw","provider":"apigw","docs":"api-gateway","stages":["sdk_approval","online_eval"],"security_warning":false}}
+{"id":"online-fgs","input":{"service":"fgs","kind":"fix","description":"Fix a FunctionGraph schema update and preserve existing state"},"expected":{"sdk":"fgs","provider":"fgs","docs":"function-graph","stages":["sdk_validate","provider_validate"],"security_warning":false}}
+

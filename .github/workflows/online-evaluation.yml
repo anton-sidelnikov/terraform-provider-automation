@@ -1,0 +1,45 @@
+name: Online evaluation
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: online-evaluation
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12.11"
+  PYTHONHASHSEED: "0"
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: online-evaluation
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: ""
+      - name: Evaluate the deployed service
+        env:
+          OTC_AGENT_EVAL_URL: ${{ vars.OTC_AGENT_EVAL_URL }}
+          OTC_AGENT_EVAL_TOKEN: ${{ secrets.OTC_AGENT_EVAL_TOKEN }}
+        run: make online-eval
+      - name: Upload evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: online-evaluation-${{ github.run_id }}
+          path: build/online-eval.json
+          if-no-files-found: error
+          retention-days: 90
+

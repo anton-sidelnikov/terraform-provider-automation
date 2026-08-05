@@ -1,0 +1,137 @@
+name: Governed OTC change
+
+on:
+  workflow_dispatch:
+    inputs:
+      docs_repository:
+        description: Repository slug in opentelekomcloud-docs (for example api-gateway)
+        required: true
+        type: string
+      service_key:
+        description: Optional reviewed key when one docs repository has multiple mapped variants
+        required: false
+        type: string
+      kind:
+        description: Change type
+        required: true
+        type: choice
+        options: [new_service, feature, fix, update]
+      description:
+        description: Issue-level requirement; always treated as untrusted data
+        required: true
+        type: string
+      issue_url:
+        description: Optional github.com issue URL
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: otc-change-${{ inputs.docs_repository }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12.11"
+  PYTHONHASHSEED: "0"
+
+jobs:
+  intake-and-offline-gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      sdk: ${{ steps.fields.outputs.sdk }}
+      provider: ${{ steps.fields.outputs.provider }}
+      docs: ${{ steps.fields.outputs.docs }}
+      bootstrap: ${{ steps.fields.outputs.bootstrap }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: ""
+      - name: Run offline quality and security gates
+        run: make check
+      - name: Create a validated immutable plan
+        run: >-
+          python -m otc_agent.cli plan
+          --service "$REQUEST_SERVICE_KEY"
+          --kind "$REQUEST_KIND"
+          --description "$REQUEST_DESCRIPTION"
+          --docs-repository "$REQUEST_DOCS_REPOSITORY"
+          --issue-url "$REQUEST_ISSUE_URL"
+          --output build/change-plan.json
+        env:
+          PYTHONPATH: src
+          REQUEST_SERVICE_KEY: ${{ inputs.service_key }}
+          REQUEST_DOCS_REPOSITORY: ${{ inputs.docs_repository }}
+          REQUEST_KIND: ${{ inputs.kind }}
+          REQUEST_DESCRIPTION: ${{ inputs.description }}
+          REQUEST_ISSUE_URL: ${{ inputs.issue_url }}
+      - name: Export allow-listed mapping fields
+        id: fields
+        run: |
+          python -c 'import json; p=json.load(open("build/change-plan.json")); print("sdk="+(p["mapping"]["sdk"] or "")); print("provider="+(p["mapping"]["provider"] or "")); print("docs="+p["mapping"]["docs"]); print("bootstrap="+str(p["mapping"]["bootstrap"]).lower())' >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validated-plan-${{ github.run_id }}
+          path: |
+            build/change-plan.json
+            build/offline-eval.json
+          if-no-files-found: error
+          retention-days: 90
+
+  sdk-proposal:
+    needs: intake-and-offline-gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: sdk-proposal
+    steps:
+      - name: Check out automation at the triggering revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: automation
+          persist-credentials: false
+      - name: Check out SDK reference
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: opentelekomcloud/gophertelekomcloud
+          path: workspace/sdk
+          persist-credentials: false
+      - name: Check out mapped API reference
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: opentelekomcloud-docs/${{ needs.intake-and-offline-gates.outputs.docs }}
+          path: workspace/docs
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: validated-plan-${{ github.run_id }}
+          path: evidence
+      - name: Verify the SDK and documentation inputs
+        run: |
+          test -f workspace/docs/api-ref/source/index.rst
+          git -C workspace/sdk rev-parse HEAD
+          git -C workspace/docs rev-parse HEAD
+          echo "The model-backed patch worker is deployed separately; it consumes the validated plan and these read-only checkouts."
+          echo "It must return an SDK patch plus tests, never credentials or executable commands."
+      - name: Preserve SDK proposal inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sdk-proposal-inputs-${{ github.run_id }}
+          path: evidence/
+          retention-days: 90
+
+  provider-proposal-gate:
+    needs: [intake-and-offline-gates, sdk-proposal]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: provider-after-sdk-approval
+    steps:
+      - name: Enforce the cross-repository dependency gate
+        run: |
+          echo "A reviewer must attach the approved SDK PR and immutable SDK commit SHA before provider generation."
+          echo "See docs/workflow.md for the repository_dispatch continuation contract."

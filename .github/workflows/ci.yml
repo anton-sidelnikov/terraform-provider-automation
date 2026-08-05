@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12.11"
+  PYTHONHASHSEED: "0"
+  TZ: "UTC"
+  LC_ALL: "C.UTF-8"
+
+jobs:
+  offline-verification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: ""
+      - name: Compile and test
+        run: make check
+      - name: Check repository hygiene
+        run: |
+          test -z "$(git status --porcelain --untracked-files=no)"
+          ! rg -n --hidden --glob '!position.md' '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16})' .
+      - name: Upload offline evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: offline-evaluation-${{ github.sha }}
+          path: build/offline-eval.json
+          if-no-files-found: error
+          retention-days: 30
+
+  container-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build immutable runtime image
+        run: docker build --pull=false --tag otc-agent:test .
+      - name: Exercise health and planning endpoints
+        run: |
+          docker run --detach --rm --publish 127.0.0.1:18080:8080 --name otc-agent-smoke otc-agent:test
+          trap 'docker stop otc-agent-smoke >/dev/null 2>&1 || true' EXIT
+          for attempt in 1 2 3 4 5; do
+            curl --fail --silent http://127.0.0.1:18080/healthz && break
+            sleep 1
+          done
+          curl --fail --silent \
+            --header 'Content-Type: application/json' \
+            --data '{"service":"apigw","kind":"feature","description":"smoke test"}' \
+            http://127.0.0.1:18080/v1/plans > /tmp/plan.json
+          python3 -c 'import json; assert json.load(open("/tmp/plan.json"))["mapping"]["docs"] == "api-gateway"'

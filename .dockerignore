@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.venv
+build
+dist
+tests
+evals
+docs
+*.iml
+__pycache__
+
