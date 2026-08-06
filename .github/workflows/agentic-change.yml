@@ -71,7 +71,7 @@ jobs:
         run: |
           python -c 'import json; p=json.load(open("build/change-plan.json")); print("sdk="+p["mapping"]["sdk"]); print("provider="+p["mapping"]["provider"]); print("docs="+p["mapping"]["docs"]); print("kind="+p["classification"]["kind"]); print("bootstrap="+str(p["mapping"]["bootstrap"]).lower())' >> "$GITHUB_OUTPUT"
           python -c 'import json; p=json.load(open("build/change-plan.json")); c=p["classification"]; print(f"## Classification: `{c['"'"'kind'"'"']}` ({c['"'"'confidence'"'"']})")' >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sdk-plan-${{ github.run_id }}
           path: |
@@ -138,7 +138,7 @@ jobs:
           --output-dir generated
       - name: Upload verified SDK patch and evidence
         if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sdk-candidate-${{ github.run_id }}
           path: |
