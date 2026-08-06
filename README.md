@@ -67,7 +67,7 @@ Governed skills are declared in [`config/skills.json`](config/skills.json). Run 
 
 The CLI exposes `analyze`, `spec`, `refactor-sdk`, `review`, `verify`, `publish`, `iterate-pr`, and `resume`. `analyze` is executable now; later-stage commands validate their versioned input contract and return exit code `4` until their tracked implementation milestone is complete.
 
-Generation evidence schema version 2 records the selected skill version and every resolved policy version; PR audit metadata carries the same governance identity.
+Generation evidence schema version 3 records the selected skill and policy versions plus a hash-linked `EXPLORE -> SPECIFY -> PLAN -> IMPLEMENT -> VERIFY -> REVIEW -> PUBLISH` artifact chain. PR audit metadata carries the final artifact identity.
 
 ## Repository layout
 

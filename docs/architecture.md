@@ -46,6 +46,14 @@ Role separation reduces correlated failure. A high-risk or low-confidence propos
 
 Every transition has a machine-readable input/output schema, deadline, retry policy, and terminal failure status. `sdk_approval` is a hard barrier. Resumption uses a run ID and verifies all upstream commit IDs and hashes; it does not replay completed write operations.
 
+Each SDK/provider candidate is internally produced as a hash-linked artifact chain:
+
+`EXPLORE → SPECIFY → PLAN → IMPLEMENT → VERIFY → REVIEW → PUBLISH`
+
+Every accepted phase serializes a canonical JSON payload, records its SHA-256 digest, and includes the preceding artifact digest. The current `REVIEW` artifact represents deterministic citation, path, and repository-native validation; independent model review is added as a separate reviewer without changing the chain contract. `PUBLISH` means ready for the protected publisher, not that a GitHub write occurred.
+
+The review boundary reconstructs and verifies the complete artifact chain, then creates a separate review bundle containing only the frozen `EXPLORE` through `VERIFY` artifacts, the digest-matched patch, and allow-listed deterministic diagnostics. Raw prompts, messages, conversation history, and hidden author reasoning are not copied into reviewer context.
+
 ## Retrieval
 
 The retrieval broker indexes only:
@@ -85,4 +93,3 @@ Store run state in PostgreSQL with optimistic transitions and idempotency keys. 
 ## Deployment
 
 Run the API/control plane, patch workers, retrieval workers, and telemetry collector as separate Kubernetes workloads. Use a queue with visibility timeouts and a dead-letter queue. Apply default-deny network policy; only the retrieval broker reaches allow-listed GitHub endpoints, only the model broker reaches approved model endpoints, and only the publisher reaches GitHub write APIs. Use workload identity and a secrets manager, not long-lived environment credentials.
-

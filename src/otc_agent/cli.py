@@ -14,6 +14,7 @@ from .model import OpenAICompatibleModel
 from .orchestrator import Planner
 from .patching import provider_policy, sdk_policy, validate_patch
 from .policy import PolicyContract, default_policy_root, load_policy_registry
+from .review import build_review_bundle
 from .sdk_layout import analyze_sdk_layout
 from .service import serve
 from .skill import (
@@ -142,7 +143,26 @@ def main(argv: list[str] | None = None) -> int:
         }
         _write_json(result, args.output)
         return 0 if plan.status.value != "blocked" else 3
-    if args.command in {"spec", "refactor-sdk", "review", "verify", "publish", "iterate-pr", "resume"}:
+    if args.command == "review":
+        policies, skills = _skill_contracts()
+        skill = find_skill(skills, "review")
+        payload = json.loads(args.input.read_text(encoding="utf-8"))
+        validate_skill_input(skill, payload)
+        bundle = build_review_bundle(
+            payload["evidence"],
+            payload["patch"],
+            payload.get("diagnostics"),
+        )
+        _write_json(
+            {
+                "status": "ready_for_independent_review",
+                "skill": skill_identity(skill, policies),
+                "review_bundle": bundle.as_dict(),
+            },
+            args.output,
+        )
+        return 0
+    if args.command in {"spec", "refactor-sdk", "verify", "publish", "iterate-pr", "resume"}:
         policies, skills = _skill_contracts()
         skill = find_skill(skills, args.command)
         payload = json.loads(args.input.read_text(encoding="utf-8"))

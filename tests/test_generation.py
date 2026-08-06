@@ -89,12 +89,20 @@ class GenerationTests(unittest.TestCase):
             self.assertEqual(record.changed_paths, ("openstack/demo/v1/widgets/requests.go",))
             self.assertEqual(evidence["citations"][0]["path"], "api-ref/source/index.rst")
             self.assertEqual(evidence["model"], "fake-model")
-            self.assertEqual(evidence["schema_version"], 2)
+            self.assertEqual(evidence["schema_version"], 3)
             self.assertEqual(evidence["skill"]["id"], "generate-sdk")
             self.assertEqual(evidence["skill"]["version"], 1)
             self.assertEqual(
                 {item["id"] for item in evidence["policies"]},
                 {"sdk-coding", "testing", "security"},
+            )
+            self.assertEqual(
+                [item["stage"] for item in evidence["workflow_artifacts"]],
+                ["explore", "specify", "plan", "implement", "verify", "review", "publish"],
+            )
+            self.assertEqual(
+                evidence["workflow_artifacts"][-1]["previous_sha256"],
+                evidence["workflow_artifacts"][-2]["artifact_sha256"],
             )
 
     def test_refactoring_generation_records_refactor_skill(self) -> None:

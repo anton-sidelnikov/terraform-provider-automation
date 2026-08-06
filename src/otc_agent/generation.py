@@ -14,6 +14,7 @@ from .patching import PatchPolicy, apply_patch, provider_policy, repository_diff
 from .policy import default_policy_root, load_policy_registry
 from .retrieval import EvidenceChunk, retrieve_api_reference
 from .skill import default_skill_registry_path, find_skill, load_skill_registry, skill_identity
+from .workflow import ArtifactChain, FrozenArtifact, WORKFLOW_VERSION, WorkflowStage
 
 
 class GenerationError(RuntimeError):
@@ -34,6 +35,8 @@ class GenerationEvidence:
     stage: str
     skill: dict[str, object]
     policies: tuple[dict[str, object], ...]
+    workflow_version: int
+    workflow_artifacts: tuple[FrozenArtifact, ...]
     repository_revision: str
     documentation_revision: str
     changed_paths: tuple[str, ...]
@@ -195,6 +198,39 @@ def _generate(
 ) -> GenerationEvidence:
     if _git_status(repository_root):
         raise GenerationError("candidate repository must start clean")
+    repository_revision = _git_revision(repository_root)
+    documentation_revision = _git_revision(docs_root)
+    skill, policies = _governance_evidence(skill_id)
+    chain = ArtifactChain()
+    chain.append(
+        WorkflowStage.EXPLORE,
+        {
+            "stage": stage,
+            "repository_revision": repository_revision,
+            "documentation_revision": documentation_revision,
+            "classification": _classification_kind(plan),
+            "retrieved_evidence": [chunk.metadata() for chunk in evidence],
+            "code_context_sha256": hashlib.sha256(code_context.encode("utf-8")).hexdigest(),
+        },
+    )
+    chain.append(
+        WorkflowStage.SPECIFY,
+        {
+            "trusted_instructions": instructions.strip(),
+            "instructions_sha256": hashlib.sha256(instructions.encode("utf-8")).hexdigest(),
+            "required_citations": True,
+            "path_policy": stage,
+            "test_commands": [list(command) for command in test_commands],
+        },
+    )
+    chain.append(
+        WorkflowStage.PLAN,
+        {
+            "change_plan": plan,
+            "skill": skill,
+            "policies": list(policies),
+        },
+    )
     budget = Budget(max_model_calls=2, max_input_tokens=150_000, max_output_tokens=40_000, max_cost_usd=15)
     result = model.generate_json(
         system=_SYSTEM_PROMPT,
@@ -202,6 +238,16 @@ def _generate(
         budget=budget,
     )
     patch, summary, assumptions, citations = _validate_model_result(result, evidence)
+    chain.append(
+        WorkflowStage.IMPLEMENT,
+        {
+            "model": result.model,
+            "summary": summary,
+            "assumptions": list(assumptions),
+            "citations": list(citations),
+            "candidate_patch_sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
+        },
+    )
     changed = apply_patch(repository_root, patch, policy)
     go_files = [str(repository_root / path) for path in changed if path.endswith(".go") and (repository_root / path).exists()]
     commands: list[CommandEvidence] = []
@@ -214,14 +260,52 @@ def _generate(
     final_patch = repository_diff(repository_root)
     changed = validate_patch(final_patch, final_policy or policy)
     patch_digest = hashlib.sha256(final_patch.encode("utf-8")).hexdigest()
-    skill, policies = _governance_evidence(skill_id)
+    command_payload = [
+        {
+            "argv": list(command.argv),
+            "returncode": command.returncode,
+            "duration_seconds": command.duration_seconds,
+            "output_sha256": hashlib.sha256(command.output.encode("utf-8")).hexdigest(),
+        }
+        for command in commands
+    ]
+    chain.append(
+        WorkflowStage.VERIFY,
+        {
+            "changed_paths": list(changed),
+            "patch_sha256": patch_digest,
+            "commands": command_payload,
+            "path_policy_passed": True,
+        },
+    )
+    chain.append(
+        WorkflowStage.REVIEW,
+        {
+            "decision": "accepted_by_deterministic_gate",
+            "reviewer": "deterministic",
+            "checks": ["citation_provenance", "path_scope", "repository_native_validation"],
+            "patch_sha256": patch_digest,
+        },
+    )
+    chain.append(
+        WorkflowStage.PUBLISH,
+        {
+            "status": "ready_for_protected_publisher",
+            "patch_sha256": patch_digest,
+            "repository_revision": repository_revision,
+            "documentation_revision": documentation_revision,
+        },
+    )
+    workflow_artifacts = chain.finish()
     record = GenerationEvidence(
-        schema_version=2,
+        schema_version=3,
         stage=stage,
         skill=skill,
         policies=policies,
-        repository_revision=_git_revision(repository_root),
-        documentation_revision=_git_revision(docs_root),
+        workflow_version=WORKFLOW_VERSION,
+        workflow_artifacts=workflow_artifacts,
+        repository_revision=repository_revision,
+        documentation_revision=documentation_revision,
         changed_paths=changed,
         patch_sha256=patch_digest,
         model=result.model,
