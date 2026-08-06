@@ -13,6 +13,7 @@ from .generation import generate_provider_candidate, generate_sdk_candidate, pro
 from .model import OpenAICompatibleModel
 from .orchestrator import Planner
 from .patching import provider_policy, sdk_policy, validate_patch
+from .policy import load_policy_registry
 from .sdk_layout import analyze_sdk_layout
 from .service import serve
 from .telemetry import configure_logging
@@ -40,6 +41,8 @@ def _parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--output", type=Path, required=True)
     evaluate.add_argument("--baseline", type=Path)
     sub.add_parser("catalog-check")
+    policy_check = sub.add_parser("policy-check")
+    policy_check.add_argument("--root", type=Path, default=Path("docs/policy"))
     server = sub.add_parser("serve")
     server.add_argument("--host", default="127.0.0.1")
     server.add_argument("--port", type=int, default=8080)
@@ -70,6 +73,21 @@ def main(argv: list[str] | None = None) -> int:
     catalog = Catalog.load(args.catalog)
     if args.command == "catalog-check":
         print(json.dumps({"status": "ok", "mappings": len(catalog.mappings), "api_ref_repositories": len(catalog.eligible_docs_repositories)}))
+        return 0
+    if args.command == "policy-check":
+        contracts = load_policy_registry(args.root)
+        print(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "policies": [
+                        {"id": contract.policy_id, "version": contract.version}
+                        for contract in contracts
+                    ],
+                },
+                sort_keys=True,
+            )
+        )
         return 0
     if args.command == "plan":
         plan = Planner(catalog).plan(

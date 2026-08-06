@@ -3,6 +3,7 @@
 Status: Adopted  
 Version: 1  
 Adopted: 2026-08-06
+Policy ID: sdk-layout
 
 ## 1. Scope
 
@@ -63,4 +64,3 @@ Refactoring patches must not introduce unrelated endpoint or contract changes.
 - [ ] Legacy generic files are removed when empty.
 - [ ] Existing and migration-specific tests pass.
 - [ ] The pull request is limited to a reviewable API route or approved exception.
-

@@ -58,6 +58,7 @@ The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometh
 - [APIGW/FGS implementation conventions](docs/reference-conventions.md)
 - [Position requirements traceability](docs/requirements-traceability.md)
 - [Implementation roadmap and task tracker](tasks.md)
+- [Versioned policy registry](docs/policy/README.md)
 
 ## Repository layout
 
