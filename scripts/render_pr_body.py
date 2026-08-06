@@ -28,6 +28,10 @@ def main() -> int:
         for item in evidence["commands"]
     )
     dependency = f"\n- Approved SDK PR: {args.sdk_pr_url}\n" if args.sdk_pr_url else ""
+    policies = ", ".join(
+        f"`{item['id']}@{item['version']}`"
+        for item in evidence["policies"]
+    )
     body = f"""## Agent-generated change
 
 **Classification:** `{classification['kind']}` (confidence `{classification['confidence']}`)  
@@ -55,13 +59,15 @@ def main() -> int:
 - Base revision: `{evidence['repository_revision']}`
 - Documentation revision: `{evidence['documentation_revision']}`
 - Patch SHA-256: `{evidence['patch_sha256']}`
+- Skill: `{evidence['skill']['id']}@{evidence['skill']['version']}`
+- Policies: {policies}
 - Model route: `{evidence['model']}`
 - Estimated model cost: `${evidence['cost_usd']:.6f}`
 
 This is a draft produced by a governed automation workflow. Human review is required; the workflow cannot merge it.
 
 <!-- otc-agent-metadata
-{json.dumps({'schema_version': 1, 'classification': classification['kind'], 'docs_repository': mapping['docs'], 'sdk': mapping['sdk'], 'provider': mapping['provider'], 'automation_run': args.run_url}, sort_keys=True)}
+{json.dumps({'schema_version': 2, 'classification': classification['kind'], 'docs_repository': mapping['docs'], 'sdk': mapping['sdk'], 'provider': mapping['provider'], 'automation_run': args.run_url, 'skill': evidence['skill'], 'policies': evidence['policies']}, sort_keys=True)}
 -->
 """
     args.output.parent.mkdir(parents=True, exist_ok=True)

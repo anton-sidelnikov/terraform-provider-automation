@@ -16,6 +16,10 @@ class PolicyContract:
     path: str
 
 
+def default_policy_root() -> Path:
+    return Path(__file__).resolve().parents[2] / "docs" / "policy"
+
+
 _METADATA = re.compile(r"^(Policy ID|Status|Version|Adopted):\s*(.+?)\s*$", re.MULTILINE)
 _SECTION = re.compile(r"^##\s+(\d+)\.\s+(.+?)\s*$", re.MULTILINE)
 
@@ -64,4 +68,3 @@ def _load_policy(path: Path) -> PolicyContract:
     if not re.search(r"^- \[[ x]\]\s+", content, re.MULTILINE):
         raise PolicyError(f"{path.name}: review checklist is empty")
     return PolicyContract(policy_id, version, path.as_posix())
-

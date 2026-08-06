@@ -13,10 +13,17 @@ from .generation import generate_provider_candidate, generate_sdk_candidate, pro
 from .model import OpenAICompatibleModel
 from .orchestrator import Planner
 from .patching import provider_policy, sdk_policy, validate_patch
-from .policy import load_policy_registry
+from .policy import PolicyContract, default_policy_root, load_policy_registry
 from .sdk_layout import analyze_sdk_layout
 from .service import serve
-from .skill import load_skill_registry
+from .skill import (
+    default_skill_registry_path,
+    find_skill,
+    load_skill_registry,
+    SkillManifest,
+    skill_identity,
+    validate_skill_input,
+)
 from .telemetry import configure_logging
 
 
@@ -43,10 +50,21 @@ def _parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--baseline", type=Path)
     sub.add_parser("catalog-check")
     policy_check = sub.add_parser("policy-check")
-    policy_check.add_argument("--root", type=Path, default=Path("docs/policy"))
+    policy_check.add_argument("--root", type=Path, default=default_policy_root())
     skill_check = sub.add_parser("skill-check")
-    skill_check.add_argument("--registry", type=Path, default=Path("config/skills.json"))
-    skill_check.add_argument("--policy-root", type=Path, default=Path("docs/policy"))
+    skill_check.add_argument("--registry", type=Path, default=default_skill_registry_path())
+    skill_check.add_argument("--policy-root", type=Path, default=default_policy_root())
+    analyze = sub.add_parser("analyze")
+    analyze.add_argument("--service", required=True)
+    analyze.add_argument("--description", required=True)
+    analyze.add_argument("--docs-repository")
+    analyze.add_argument("--issue-url")
+    analyze.add_argument("--sdk-root", type=Path)
+    analyze.add_argument("--output", type=Path)
+    for skill_id in ("spec", "refactor-sdk", "review", "verify", "publish", "iterate-pr", "resume"):
+        command = sub.add_parser(skill_id)
+        command.add_argument("--input", type=Path, required=True)
+        command.add_argument("--output", type=Path)
     server = sub.add_parser("serve")
     server.add_argument("--host", default="127.0.0.1")
     server.add_argument("--port", type=int, default=8080)
@@ -87,6 +105,56 @@ def main(argv: list[str] | None = None) -> int:
         skills = load_skill_registry(args.registry, policies)
         print(json.dumps({"status": "ok", "skills": [{"id": item.skill_id, "version": item.version} for item in skills]}, sort_keys=True))
         return 0
+    if args.command == "analyze":
+        policies, skills = _skill_contracts()
+        skill = find_skill(skills, "analyze")
+        payload: dict[str, object] = {
+            "service": args.service,
+            "description": args.description,
+        }
+        if args.docs_repository:
+            payload["docs_repository"] = args.docs_repository
+        if args.issue_url:
+            payload["issue_url"] = args.issue_url
+        if args.sdk_root:
+            payload["sdk_root"] = str(args.sdk_root)
+        validate_skill_input(skill, payload)
+        plan = Planner(catalog).plan(
+            ChangeRequest(
+                service=args.service,
+                kind=None,
+                description=args.description,
+                docs_repository=args.docs_repository,
+                issue_url=args.issue_url,
+            ),
+            sdk_root=args.sdk_root,
+        )
+        layout = None
+        if args.sdk_root and plan.mapping.sdk:
+            layout = analyze_sdk_layout(args.sdk_root, plan.mapping.sdk).as_dict()
+        result = {
+            "status": plan.status.value,
+            "skill": skill_identity(skill, policies),
+            "classification": plan.classification,
+            "layout": layout,
+            "gaps": plan.warnings,
+            "plan": plan.as_dict(),
+        }
+        _write_json(result, args.output)
+        return 0 if plan.status.value != "blocked" else 3
+    if args.command in {"spec", "refactor-sdk", "review", "verify", "publish", "iterate-pr", "resume"}:
+        policies, skills = _skill_contracts()
+        skill = find_skill(skills, args.command)
+        payload = json.loads(args.input.read_text(encoding="utf-8"))
+        validate_skill_input(skill, payload)
+        result = {
+            "status": "not_implemented",
+            "skill": skill_identity(skill, policies),
+            "input": payload,
+            "reason": "The command contract is active; execution is delivered by its roadmap milestone.",
+        }
+        _write_json(result, args.output)
+        return 4
     if args.command == "plan":
         plan = Planner(catalog).plan(
             ChangeRequest(
@@ -170,6 +238,20 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"status": "ok", "paths": paths}))
         return 0
     return 2
+
+
+def _skill_contracts() -> tuple[tuple[PolicyContract, ...], tuple[SkillManifest, ...]]:
+    policies = load_policy_registry(default_policy_root())
+    return policies, load_skill_registry(default_skill_registry_path(), policies)
+
+
+def _write_json(value: dict[str, object], output: Path | None) -> None:
+    content = json.dumps(value, indent=2, sort_keys=True) + "\n"
+    if output:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(content, encoding="utf-8")
+    else:
+        sys.stdout.write(content)
 
 
 if __name__ == "__main__":

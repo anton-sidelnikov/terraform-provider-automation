@@ -1,9 +1,20 @@
-PYTHON ?= python3
+UV ?= uv
+UV_RUN := $(UV) run --frozen
+PYTHON := $(UV_RUN) python
+RUFF := $(UV_RUN) ruff
 export PYTHONPATH := $(CURDIR)/src
 
-.PHONY: check test offline-eval integration-test catalog-check package
+.PHONY: sync check verify lint test offline-eval integration-test catalog-check package
 
-check:
+sync:
+	$(UV) sync --locked --dev
+
+check: lint verify
+
+lint:
+	$(RUFF) check src scripts tests
+
+verify:
 	$(PYTHON) -m compileall -q src scripts tests
 	$(PYTHON) -m unittest discover -s tests -v
 	$(PYTHON) -m otc_agent.cli catalog-check
@@ -24,4 +35,4 @@ catalog-check:
 	$(PYTHON) -m otc_agent.cli catalog-check
 
 package:
-	$(PYTHON) -m pip wheel --no-deps --no-build-isolation -w dist .
+	$(UV) build --wheel --out-dir dist

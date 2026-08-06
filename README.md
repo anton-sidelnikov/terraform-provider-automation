@@ -12,22 +12,25 @@ The repository implements the control plane, secure intake, automatic change cla
 
 ## Quick start
 
-Python 3.12 or 3.13 is sufficient; the runtime has no third-party dependencies.
+Python 3.12 or 3.13 is sufficient; the runtime has no third-party dependencies. Development uses a uv-managed `.venv`.
 
 ```bash
+uv sync --locked --dev
 make check
 
-PYTHONPATH=src python -m otc_agent.cli plan \
+uv run otc-agent plan \
   --docs-repository modelarts \
   --description "Create complete SDK and provider support from the API reference" \
   --output build/change-plan.json
 
-PYTHONPATH=src python -m otc_agent.cli analyze-sdk-layout \
+uv run otc-agent analyze-sdk-layout \
   --sdk-root ../gophertelekomcloud \
   --service apigw
 
-PYTHONPATH=src python -m otc_agent.cli serve --host 127.0.0.1 --port 8080
+uv run otc-agent serve --host 127.0.0.1 --port 8080
 ```
+
+`make lint` runs Ruff from the locked environment; `make verify` runs compilation, tests, policy/skill checks, and offline evaluation. `make check` runs both.
 
 The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometheus-format `GET /metrics`.
 
@@ -61,6 +64,10 @@ The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometh
 - [Versioned policy registry](docs/policy/README.md)
 
 Governed skills are declared in [`config/skills.json`](config/skills.json). Run `otc-agent policy-check` and `otc-agent skill-check` to validate policy and skill contracts.
+
+The CLI exposes `analyze`, `spec`, `refactor-sdk`, `review`, `verify`, `publish`, `iterate-pr`, and `resume`. `analyze` is executable now; later-stage commands validate their versioned input contract and return exit code `4` until their tracked implementation milestone is complete.
+
+Generation evidence schema version 2 records the selected skill version and every resolved policy version; PR audit metadata carries the same governance identity.
 
 ## Repository layout
 

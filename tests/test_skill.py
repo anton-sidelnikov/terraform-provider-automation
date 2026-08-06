@@ -21,6 +21,8 @@ class SkillTests(unittest.TestCase):
                 "analyze",
                 "spec",
                 "refactor-sdk",
+                "generate-sdk",
+                "generate-provider",
                 "review",
                 "verify",
                 "publish",
@@ -56,4 +58,3 @@ class SkillTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

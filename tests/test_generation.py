@@ -89,6 +89,47 @@ class GenerationTests(unittest.TestCase):
             self.assertEqual(record.changed_paths, ("openstack/demo/v1/widgets/requests.go",))
             self.assertEqual(evidence["citations"][0]["path"], "api-ref/source/index.rst")
             self.assertEqual(evidence["model"], "fake-model")
+            self.assertEqual(evidence["schema_version"], 2)
+            self.assertEqual(evidence["skill"]["id"], "generate-sdk")
+            self.assertEqual(evidence["skill"]["version"], 1)
+            self.assertEqual(
+                {item["id"] for item in evidence["policies"]},
+                {"sdk-coding", "testing", "security"},
+            )
+
+    def test_refactoring_generation_records_refactor_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sdk = root / "sdk"
+            docs = root / "docs"
+            sdk.mkdir()
+            docs.mkdir()
+            initialize_repository(sdk, {"README.md": "SDK\n"})
+            initialize_repository(
+                docs,
+                {"api-ref/source/index.rst": "Demo API\n========\nPOST /v1/widgets\n"},
+            )
+            plan = {
+                "mapping": {"sdk": "demo", "provider": "demo", "docs": "demo", "display_name": "Demo"},
+                "classification": {"kind": "refactoring", "confidence": 1.0},
+                "request": {"description": "Migrate the legacy widget operation layout"},
+            }
+            successful = CommandEvidence(("test",), 0, 0.01, "ok")
+
+            with patch("otc_agent.generation._run", return_value=successful):
+                record = generate_sdk_candidate(
+                    plan=plan,
+                    sdk_root=sdk,
+                    docs_root=docs,
+                    output_dir=root / "generated",
+                    model=FakeModel(),
+                )
+
+            self.assertEqual(record.skill["id"], "refactor-sdk")
+            self.assertEqual(
+                {item["id"] for item in record.policies},
+                {"sdk-layout", "sdk-coding", "testing", "security"},
+            )
 
 
 if __name__ == "__main__":
