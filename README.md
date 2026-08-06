@@ -22,6 +22,10 @@ PYTHONPATH=src python -m otc_agent.cli plan \
   --description "Create complete SDK and provider support from the API reference" \
   --output build/change-plan.json
 
+PYTHONPATH=src python -m otc_agent.cli analyze-sdk-layout \
+  --sdk-root ../gophertelekomcloud \
+  --service apigw
+
 PYTHONPATH=src python -m otc_agent.cli serve --host 127.0.0.1 --port 8080
 ```
 
@@ -53,6 +57,7 @@ The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometh
 - [Service mapping strategy and table](docs/service-catalog.md)
 - [APIGW/FGS implementation conventions](docs/reference-conventions.md)
 - [Position requirements traceability](docs/requirements-traceability.md)
+- [Implementation roadmap and task tracker](tasks.md)
 
 ## Repository layout
 

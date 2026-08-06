@@ -5,12 +5,14 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 from .budget import Budget
 from .catalog import Catalog, CatalogError
 from .classification import classify_change
-from .domain import ChangePlan, ChangeRequest, RunStatus, Stage
+from .domain import ChangeKind, ChangePlan, ChangeRequest, RunStatus, Stage
 from .security import validate_request
+from .sdk_layout import analyze_sdk_layout
 from .telemetry import Metrics, span
 
 
@@ -31,7 +33,12 @@ class Planner:
         self.metrics = metrics or Metrics()
         self.logger = logging.getLogger("otc_agent.planner")
 
-    def plan(self, request: ChangeRequest, budget: Budget | None = None) -> ChangePlan:
+    def plan(
+        self,
+        request: ChangeRequest,
+        budget: Budget | None = None,
+        sdk_root: Path | None = None,
+    ) -> ChangePlan:
         started = time.monotonic()
         run_id = request.correlation_id or uuid.uuid4().hex
         budget = budget or Budget()
@@ -57,7 +64,10 @@ class Planner:
                     )
             else:
                 mapping = self.catalog.resolve_documentation(request.docs_repository or "")
-            classification = classify_change(request, mapping)
+            sdk_layout = None
+            if sdk_root and mapping.sdk:
+                sdk_layout = analyze_sdk_layout(sdk_root, mapping.sdk)
+            classification = classify_change(request, mapping, sdk_layout)
             request = replace(request, kind=classification.kind)
         warnings: list[str] = []
         if assessment.injection_signals:
@@ -71,9 +81,15 @@ class Planner:
             warnings.append(
                 "Change type is ambiguous. Clarify whether this is a new endpoint, an existing contract fix, or additive attributes."
             )
-        stages = [stage.value for stage in Stage if stage != Stage.SERVICE_DISCOVERY]
+        stages = [
+            stage.value
+            for stage in Stage
+            if stage not in {Stage.SERVICE_DISCOVERY, Stage.SDK_REFACTOR}
+        ]
         if mapping.bootstrap:
             stages.insert(stages.index(Stage.SDK_PLAN.value), Stage.SERVICE_DISCOVERY.value)
+        if classification.kind == ChangeKind.REFACTORING:
+            stages.insert(stages.index(Stage.SDK_PLAN.value), Stage.SDK_REFACTOR.value)
         sdk_name = mapping.sdk or "<reviewed-new-sdk-abbreviation>"
         provider_name = mapping.provider or "<reviewed-new-provider-abbreviation>"
         outputs = [
@@ -97,6 +113,12 @@ class Planner:
             assumptions.insert(
                 0,
                 "No reviewed service mapping exists: a maintainer must approve the SDK/provider abbreviations and service boundaries before SDK generation.",
+            )
+        if classification.kind == ChangeKind.REFACTORING:
+            outputs.insert(0, f"gophertelekomcloud/openstack/{sdk_name}/... operation-per-file migration")
+            assumptions.insert(
+                0,
+                "Repository layout evidence is authoritative for refactoring classification; API behavior must remain unchanged.",
             )
         plan = ChangePlan(
             request=request,

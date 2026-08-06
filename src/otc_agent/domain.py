@@ -10,12 +10,14 @@ class ChangeKind(StrEnum):
     FEATURE = "feature"
     FIX = "fix"
     UPDATE = "update"
+    REFACTORING = "refactoring"
 
 
 class Stage(StrEnum):
     INTAKE = "intake"
     RETRIEVE = "retrieve"
     SERVICE_DISCOVERY = "service_discovery"
+    SDK_REFACTOR = "sdk_refactor"
     SDK_PLAN = "sdk_plan"
     SDK_GENERATE = "sdk_generate"
     SDK_VALIDATE = "sdk_validate"
