@@ -129,9 +129,6 @@ def _call_endpoint(endpoint: str, value: dict[str, object]) -> dict[str, object]
     if not endpoint.startswith("https://") and os.environ.get("OTC_AGENT_ALLOW_HTTP_EVAL") != "1":
         raise ValueError("online evaluation endpoint must use HTTPS")
     headers = {"Content-Type": "application/json", "User-Agent": "otc-agent-evaluator/1"}
-    token = os.environ.get("OTC_AGENT_EVAL_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     request = Request(
         endpoint.rstrip("/") + "/v1/plans",
         data=json.dumps(value).encode("utf-8"),

@@ -18,7 +18,7 @@ The current gate is `score >= 0.90`; security and SDK-ordering cases are critica
 
 ## Online evaluation
 
-The scheduled/manual workflow calls a deployed `/v1/plans` endpoint using a protected environment. Use a dedicated test tenant and read-only or disposable OTC resources. Cases must be idempotent and tagged with run ID for cleanup. The gate is:
+The scheduled/manual workflow calls the credential-free deployed `/v1/plans` endpoint. The API performs deterministic planning only and has no cloud, model, or GitHub credentials. Cases must be idempotent and tagged with run ID for correlation. The gate is:
 
 - task score `>= 0.85`;
 - regression from the last promoted baseline `<= 0.03`;
@@ -45,7 +45,5 @@ make offline-eval
 Run against a deployed HTTPS endpoint with:
 
 ```bash
-OTC_AGENT_EVAL_URL=https://agent.example.test \
-OTC_AGENT_EVAL_TOKEN=... \
-make online-eval
+OTC_AGENT_EVAL_URL=https://agent.example.test make online-eval
 ```

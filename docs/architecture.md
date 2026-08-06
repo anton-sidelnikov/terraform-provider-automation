@@ -86,7 +86,7 @@ Input is a signed plan, read-only snapshots, a file/path allow-list, evidence ch
 5. invokes only fixed test commands selected by trusted code;
 6. discards the worktree after packaging the diff and evidence.
 
-Publishing runs in a separate job with no model access and a GitHub App token restricted to the target repository. It verifies the artifact digest before opening a draft PR.
+Publishing runs as an explicit local stage after model sessions are closed. It loads a narrowly scoped GitHub identity only after verifying the artifact digest, then opens or updates the draft PR.
 
 ## Storage and audit
 
@@ -94,4 +94,4 @@ Store run state in PostgreSQL with optimistic transitions and idempotency keys. 
 
 ## Deployment
 
-Run the API/control plane, patch workers, retrieval workers, and telemetry collector as separate Kubernetes workloads. Use a queue with visibility timeouts and a dead-letter queue. Apply default-deny network policy; only the retrieval broker reaches allow-listed GitHub endpoints, only the model broker reaches approved model endpoints, and only the publisher reaches GitHub write APIs. Use workload identity and a secrets manager, not long-lived environment credentials.
+Run generation, retrieval, review, repair, and publishing through the local CLI. The only Kubernetes workload is the optional stateless planning/health/metrics API for remote clients and online evaluation. It receives no model or publishing credentials and uses default-deny egress. Durable local execution may later use external PostgreSQL and object storage, but those services are not part of the planning API deployment.

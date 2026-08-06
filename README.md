@@ -8,11 +8,11 @@ The central invariant is:
 
 Authoritative upstreams: [gophertelekomcloud](https://github.com/opentelekomcloud/gophertelekomcloud), [terraform-provider-opentelekomcloud](https://github.com/opentelekomcloud/terraform-provider-opentelekomcloud), and the [OpenTelekomCloud documentation organization](https://github.com/opentelekomcloud-docs).
 
-The repository implements the control plane, secure intake, automatic change classification, api-ref retrieval, an OpenAI-compatible patch worker, path-confined diff application, repository-native validation, evidence manifests, GitHub App publishers, health/metrics API, failure policy, and evaluation harness. Model jobs cannot access publishing credentials, choose repositories, execute model-supplied commands, merge changes, or bypass approval environments.
+The repository implements a local control plane, secure intake, automatic change classification, api-ref retrieval, a GitHub Copilot SDK patch worker, path-confined diff application, repository-native validation, evidence manifests, protected publishing, a health/metrics API, failure policy, and evaluation harness. Model execution cannot access publishing credentials, choose repositories, execute model-supplied commands, merge changes, or bypass explicit approval.
 
 ## Quick start
 
-Python 3.12 or 3.13 is sufficient; the runtime has no third-party dependencies. Development uses a uv-managed `.venv`.
+Python 3.12 or 3.13 is sufficient. Dependencies and the development `.venv` are managed by uv.
 
 ```bash
 uv sync --locked --dev
@@ -28,11 +28,16 @@ uv run otc-agent analyze-sdk-layout \
   --service apigw
 
 uv run otc-agent serve --host 127.0.0.1 --port 8080
+uv run otc-agent-api --host 127.0.0.1 --port 8080
 ```
 
 `make lint` runs Ruff from the locked environment; `make verify` runs compilation, tests, policy/skill checks, and offline evaluation. `make check` runs both.
 
-The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometheus-format `GET /metrics`.
+`otc-agent` is the local generation CLI. `otc-agent-api` is the dependency-minimal remote planning entrypoint used by the container. The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometheus-format `GET /metrics`.
+
+## Distribution
+
+Version tags publish wheel/source distributions for local installation and a signed GHCR image containing only `otc-agent-api`. Install a downloaded wheel with `uv tool install ./otc_provider_agent-<version>-py3-none-any.whl`. The OCI image is not a generation worker and contains no Copilot runtime or publishing credentials.
 
 ## What is automated
 
@@ -43,17 +48,17 @@ The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometh
 5. Retrieve revision-pinned API evidence and APIGW/FGS examples.
 6. Generate the SDK diff and its request/response, error, fixture, and pagination tests.
 7. Run SDK format, vet, and unit checks; preserve diagnostics and patch digest.
-8. After publisher approval, mint a repository-scoped App token and open a draft SDK PR.
-9. After that PR is merged, manually continue with the provider workflow, which verifies SDK PR metadata and commit SHA.
+8. After publisher approval, use the local GitHub identity to open a draft SDK PR.
+9. After that PR is merged, continue the local run, which verifies SDK PR metadata and commit SHA.
 10. Generate provider resources/data sources, registration, acceptance tests, documentation, and a Reno note; pin the SDK commit.
 11. Validate and open a separate draft provider PR; never auto-merge.
 
-`Generate SDK pull request` performs intake through draft SDK PR. After the SDK PR is reviewed and merged, `Generate provider pull request` verifies it and performs the provider half. See [docs/workflow.md](docs/workflow.md). This separation prevents untrusted issue/model content from entering a job that holds repository-write credentials.
+The local `otc-agent` CLI owns intake through draft PR creation and subsequent PR-comment iteration. GitHub Actions run deterministic checks only and never receive Copilot or repository-write credentials. See [docs/workflow.md](docs/workflow.md).
 
 ## Design documents
 
 - [Architecture and trust boundaries](docs/architecture.md)
-- [End-to-end workflow and GitHub setup](docs/workflow.md)
+- [End-to-end local workflow and GitHub checks](docs/workflow.md)
 - [Threat model](docs/security.md)
 - [Evaluations and quality gates](docs/evaluations.md)
 - [Operations, SLOs, telemetry, and failure runbooks](docs/operations.md)

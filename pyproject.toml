@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 otc-agent = "otc_agent.cli:main"
+otc-agent-api = "otc_agent.api:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/otc_agent"]

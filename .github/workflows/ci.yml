@@ -59,24 +59,24 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  container-smoke:
+  planning-api-container:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Build immutable runtime image
-        run: docker build --pull=false --tag otc-agent:test .
-      - name: Exercise health and planning endpoints
+      - name: Build planning API image
+        run: docker build --pull=false --tag otc-agent-api:test .
+      - name: Exercise planning API endpoints
         run: |
-          docker run --detach --rm --publish 127.0.0.1:18080:8080 --name otc-agent-smoke otc-agent:test
-          trap 'docker stop otc-agent-smoke >/dev/null 2>&1 || true' EXIT
-          for attempt in 1 2 3 4 5; do
-            curl --fail --silent http://127.0.0.1:18080/healthz && break
+          docker run --detach --rm --publish 127.0.0.1:18080:8080 --name otc-agent-api-smoke otc-agent-api:test
+          trap 'docker stop otc-agent-api-smoke >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 15); do
+            curl --fail --silent --max-time 2 http://127.0.0.1:18080/healthz && break
             sleep 1
           done
-          curl --fail --silent \
+          curl --fail --silent --max-time 5 \
             --header 'Content-Type: application/json' \
             --data '{"service":"apigw","kind":"feature","description":"smoke test"}' \
             http://127.0.0.1:18080/v1/plans > /tmp/plan.json

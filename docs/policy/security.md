@@ -15,7 +15,7 @@ Trusted code selects repositories, paths, tools, commands, credentials, budgets,
 
 ## 3. Isolation and credentials
 
-Candidate work runs in disposable, least-privilege environments with allow-listed network access. Model jobs receive no publishing credentials; publishers use short-lived repository-scoped GitHub App tokens.
+Candidate work runs in disposable, least-privilege environments with allow-listed network access. Model execution receives no publishing credentials; the explicit local publish step uses a narrowly scoped GitHub identity.
 
 ## 4. Failure
 
@@ -26,4 +26,3 @@ Policy, authorization, validation, evidence, and security failures fail closed. 
 - [ ] External content remained untrusted.
 - [ ] Model and publisher identities were separated.
 - [ ] Paths, tools, network, and credentials were constrained.
-

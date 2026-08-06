@@ -1,8 +1,8 @@
 # Kubernetes deployment
 
-PR generation runs in isolated GitHub Actions jobs and does not require a long-lived model service. These manifests deploy the stateless planning/health/metrics API used by online evaluation.
+Generation, review, repair, and publishing run only through the local CLI. These manifests deploy the credential-free stateless planning, health, and metrics API used by remote clients and online evaluation. The image contains no Copilot runtime and the pod has no outbound network access.
 
-1. Publish a signed release image with `.github/workflows/release.yml`.
+1. Push a version tag matching `pyproject.toml`. `.github/workflows/release.yml` publishes local CLI distributions and a signed planning API image.
 2. Replace the image tag in `deployment.yaml` with the released immutable digest (`image@sha256:...`).
 3. Adjust the ingress-controller namespace in `network-policy.yaml`.
 4. Apply the base:
@@ -12,7 +12,6 @@ PR generation runs in isolated GitHub Actions jobs and does not require a long-l
    ```
 
 5. Copy `ingress.example.yaml`, set a real hostname/TLS secret, and apply it separately.
-6. Configure the public HTTPS URL as `OTC_AGENT_EVAL_URL` in the `online-evaluation` environment.
+6. Configure the public HTTPS URL as `OTC_AGENT_EVAL_URL` in the `online-evaluation` environment. Apply ingress authentication externally if the endpoint must not be public.
 
-The deployed API receives no GitHub App private key or model credential. Publishing tokens are minted only inside protected GitHub Actions publisher jobs.
-
+The deployed API receives no GitHub, Copilot, model-provider, or cloud credential. Local publishing credentials never enter the cluster or GitHub Actions.

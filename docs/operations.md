@@ -2,33 +2,33 @@
 
 ## Service objectives
 
-| Signal | Objective | Gate/action |
-|---|---|---|
-| API availability | 99.9% monthly for intake/status | Page on fast-burn error-budget alert |
-| Plan latency | p95 < 20 s | Block promotion; investigate dependency spans |
-| End-to-end proposal latency | p95 < 30 min excluding human wait | Alert on stuck stage/queue age |
-| Offline task quality | >= 0.90 and <= 0.03 regression | Block CI |
-| Online task quality | >= 0.85 and <= 0.03 regression | Block promotion/rollback model route |
-| Cost | mean <= $1 successful task and configured per-run cap | Stop calls at hard cap |
-| Unsupported API claims | zero | Block and security-quality incident |
+| Signal                    | Objective                                             | Gate/action                                         |
+|---------------------------|-------------------------------------------------------|-----------------------------------------------------|
+| Planning API availability | 99.9% monthly when remotely deployed                  | Page on fast-burn error-budget alert                |
+| Plan latency              | p95 < 20 s                                            | Block promotion; investigate dependency spans       |
+| Local proposal latency    | p95 < 30 min excluding human wait                     | Surface the stuck stage and preserve its checkpoint |
+| Offline task quality      | >= 0.90 and <= 0.03 regression                        | Block CI                                            |
+| Online task quality       | >= 0.85 and <= 0.03 regression                        | Block promotion/rollback model route                |
+| Cost                      | mean <= $1 successful task and configured per-run cap | Stop calls at hard cap                              |
+| Unsupported API claims    | zero                                                  | Block and security-quality incident                 |
 
 Set tighter per-stage deadlines. Human approval time is measured separately from service latency.
 
 ## Telemetry
 
-Use OpenTelemetry SDKs in the deployed API/workers and export OTLP to a collector. Propagate W3C `traceparent` through API, queue metadata, retrieval, model gateway, sandbox tools, evaluation, and publisher. The reference service emits correlated `trace_id`/`span_id` structured events and Prometheus metrics without requiring third-party packages; replace its span exporter with the standard OTLP exporter in production.
+The deployed planning API emits correlated structured events and Prometheus metrics without model or GitHub access. The local CLI propagates trace context through retrieval, model calls, sandbox tools, evaluation, and publishing. If OTLP export is enabled later, configure it independently for the API and local CLI rather than introducing remote model workers.
 
 Required spans: `run.intake`, `catalog.resolve`, `retrieval.query`, `retrieval.fetch`, `model.call`, `candidate.validate`, `tool.execute`, `evaluation.case`, `artifact.sign`, and `github.publish`. Attributes must not contain prompts, source content, tokens, URLs with credentials, or customer data.
 
 Required metrics:
 
 - request/run/stage totals by bounded status, service, model route, and failure class;
-- stage duration and queue age histograms;
+- stage duration and checkpoint age histograms;
 - input/output tokens and estimated USD by model/prompt version;
 - retrieval result count, freshness, citation coverage, and cache hit ratio;
 - tool executions, timeouts, retries, and exit class;
 - offline/online scores, regressions, policy violations, and rollback count;
-- active runs, approval wait age, dead-letter queue size, and artifact verification failures.
+- active local runs, approval wait age, and artifact verification failures.
 
 Do not use run IDs, issue IDs, paths, user IDs, exception text, or model names with arbitrary versions as metric labels. They belong in logs/traces.
 
@@ -49,7 +49,7 @@ Logs are JSON, redacted at source, access-controlled, and retained according to 
 | Budget exhausted | Never increase automatically | Save partial evidence | Explicit owner override |
 | Quality regression | No retry unless infrastructure-caused | Route back to promoted model | Block/rollback |
 
-Use circuit breakers per dependency and model route, bulkheads for online evaluation versus change generation, queue backpressure, and a dead-letter queue. Never retry authentication/authorization failures, invalid requests, policy failures, or non-idempotent writes with unknown outcome.
+Use circuit breakers per dependency and model route. Keep online evaluation isolated from local change generation. Never retry authentication/authorization failures, invalid requests, policy failures, or non-idempotent writes with unknown outcome.
 
 ## Runbooks
 
@@ -71,5 +71,4 @@ Trip the budget breaker, stop new model calls, group spend by model/prompt/stage
 
 ### Stuck run
 
-Inspect state version, queue lease, and last span. Reclaim only after lease expiry. Resume from the last verified checkpoint using the same idempotency key and source hashes.
-
+Inspect the local state version, process ownership, and last span. Resume from the last verified checkpoint using the same idempotency key and source hashes only after confirming that no other local process owns the run.
