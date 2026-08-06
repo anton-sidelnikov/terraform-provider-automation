@@ -16,6 +16,7 @@ from .patching import provider_policy, sdk_policy, validate_patch
 from .policy import load_policy_registry
 from .sdk_layout import analyze_sdk_layout
 from .service import serve
+from .skill import load_skill_registry
 from .telemetry import configure_logging
 
 
@@ -43,6 +44,9 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("catalog-check")
     policy_check = sub.add_parser("policy-check")
     policy_check.add_argument("--root", type=Path, default=Path("docs/policy"))
+    skill_check = sub.add_parser("skill-check")
+    skill_check.add_argument("--registry", type=Path, default=Path("config/skills.json"))
+    skill_check.add_argument("--policy-root", type=Path, default=Path("docs/policy"))
     server = sub.add_parser("serve")
     server.add_argument("--host", default="127.0.0.1")
     server.add_argument("--port", type=int, default=8080)
@@ -75,19 +79,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"status": "ok", "mappings": len(catalog.mappings), "api_ref_repositories": len(catalog.eligible_docs_repositories)}))
         return 0
     if args.command == "policy-check":
-        contracts = load_policy_registry(args.root)
-        print(
-            json.dumps(
-                {
-                    "status": "ok",
-                    "policies": [
-                        {"id": contract.policy_id, "version": contract.version}
-                        for contract in contracts
-                    ],
-                },
-                sort_keys=True,
-            )
-        )
+        policies = load_policy_registry(args.root)
+        print(json.dumps({"status": "ok", "policies": [{"id": item.policy_id, "version": item.version} for item in policies]}, sort_keys=True))
+        return 0
+    if args.command == "skill-check":
+        policies = load_policy_registry(args.policy_root)
+        skills = load_skill_registry(args.registry, policies)
+        print(json.dumps({"status": "ok", "skills": [{"id": item.skill_id, "version": item.version} for item in skills]}, sort_keys=True))
         return 0
     if args.command == "plan":
         plan = Planner(catalog).plan(

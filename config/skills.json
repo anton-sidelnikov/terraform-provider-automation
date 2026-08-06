@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "id": "analyze",
+      "version": 1,
+      "description": "Analyze repositories, mappings, API evidence, and SDK layout without modifying files.",
+      "stage": "explore",
+      "model_tier": "fast",
+      "policies": [{"id": "change-classification", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"service": {"type": "string"}, "sdk_root": {"type": "string"}, "description": {"type": "string"}}, "required": ["service", "description"]},
+      "output_schema": {"type": "object", "properties": {"classification": {"type": "object"}, "layout": {"type": "object"}, "gaps": {"type": "array"}}, "required": ["classification", "gaps"]},
+      "tools": ["catalog.read", "repository.read", "sdk-layout.analyze", "retrieval.query"],
+      "budget": {"max_model_calls": 1, "max_input_tokens": 20000, "max_output_tokens": 4000, "max_cost_usd": 1.0, "max_wall_seconds": 120},
+      "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error"]}
+    },
+    {
+      "id": "spec",
+      "version": 1,
+      "description": "Produce a frozen, evidence-linked change specification and explicit gap list.",
+      "stage": "specify",
+      "model_tier": "strong",
+      "policies": [{"id": "change-classification", "minimum_version": 1}, {"id": "sdk-coding", "minimum_version": 1}, {"id": "provider-coding", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"analysis": {"type": "object"}, "evidence": {"type": "array"}}, "required": ["analysis", "evidence"]},
+      "output_schema": {"type": "object", "properties": {"specification": {"type": "object"}, "assumptions": {"type": "array"}, "citations": {"type": "array"}}, "required": ["specification", "assumptions", "citations"]},
+      "tools": ["policy.read", "evidence.read"],
+      "budget": {"max_model_calls": 1, "max_input_tokens": 50000, "max_output_tokens": 10000, "max_cost_usd": 4.0, "max_wall_seconds": 300},
+      "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
+    },
+    {
+      "id": "refactor-sdk",
+      "version": 1,
+      "description": "Migrate a confirmed legacy SDK package to operation-per-file structure.",
+      "stage": "implement",
+      "model_tier": "strong",
+      "policies": [{"id": "sdk-layout", "minimum_version": 1}, {"id": "sdk-coding", "minimum_version": 1}, {"id": "testing", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"specification": {"type": "object"}, "layout": {"type": "object"}, "sdk_root": {"type": "string"}}, "required": ["specification", "layout", "sdk_root"]},
+      "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "citations": {"type": "array"}, "compatibility": {"type": "object"}}, "required": ["patch", "citations", "compatibility"]},
+      "tools": ["repository.read", "patch.propose"],
+      "budget": {"max_model_calls": 2, "max_input_tokens": 120000, "max_output_tokens": 30000, "max_cost_usd": 12.0, "max_wall_seconds": 600},
+      "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
+    },
+    {
+      "id": "review",
+      "version": 1,
+      "description": "Independently review a candidate against frozen artifacts, evidence, and policy.",
+      "stage": "review",
+      "model_tier": "strong",
+      "policies": [{"id": "review", "minimum_version": 1}, {"id": "testing", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"specification": {"type": "object"}, "patch": {"type": "string"}, "evidence": {"type": "array"}, "diagnostics": {"type": "array"}}, "required": ["specification", "patch", "evidence"]},
+      "output_schema": {"type": "object", "properties": {"decision": {"type": "string"}, "findings": {"type": "array"}}, "required": ["decision", "findings"]},
+      "tools": ["policy.read", "evidence.read", "patch.read", "diagnostics.read"],
+      "budget": {"max_model_calls": 1, "max_input_tokens": 100000, "max_output_tokens": 16000, "max_cost_usd": 8.0, "max_wall_seconds": 300},
+      "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
+    },
+    {
+      "id": "verify",
+      "version": 1,
+      "description": "Run deterministic path, format, compile, test, and evidence checks.",
+      "stage": "verify",
+      "model_tier": "none",
+      "policies": [{"id": "testing", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"stage": {"type": "string"}, "service": {"type": "string"}, "patch": {"type": "string"}, "worktree": {"type": "string"}}, "required": ["stage", "service", "patch", "worktree"]},
+      "output_schema": {"type": "object", "properties": {"passed": {"type": "boolean"}, "commands": {"type": "array"}, "patch_sha256": {"type": "string"}}, "required": ["passed", "commands", "patch_sha256"]},
+      "tools": ["patch.validate", "formatter.run", "tests.run", "hash.compute"],
+      "budget": {"max_model_calls": 0, "max_input_tokens": 0, "max_output_tokens": 0, "max_cost_usd": 0, "max_wall_seconds": 900},
+      "retry": {"max_attempts": 2, "retryable": ["infrastructure_timeout"]}
+    },
+    {
+      "id": "publish",
+      "version": 1,
+      "description": "Verify an approved artifact and create or update its governed pull request.",
+      "stage": "publish",
+      "model_tier": "none",
+      "policies": [{"id": "pull-requests", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"artifact": {"type": "string"}, "repository": {"type": "string"}, "base_sha": {"type": "string"}, "issue": {"type": "integer"}}, "required": ["artifact", "repository", "base_sha", "issue"]},
+      "output_schema": {"type": "object", "properties": {"branch": {"type": "string"}, "pull_request_url": {"type": "string"}, "commit_sha": {"type": "string"}}, "required": ["branch", "pull_request_url", "commit_sha"]},
+      "tools": ["artifact.verify", "git.commit", "git.push", "github.pull-request"],
+      "budget": {"max_model_calls": 0, "max_input_tokens": 0, "max_output_tokens": 0, "max_cost_usd": 0, "max_wall_seconds": 300},
+      "retry": {"max_attempts": 1, "retryable": []}
+    },
+    {
+      "id": "iterate-pr",
+      "version": 1,
+      "description": "Resolve authorized review feedback on the existing branch and pull request.",
+      "stage": "review",
+      "model_tier": "strong",
+      "policies": [{"id": "pull-requests", "minimum_version": 1}, {"id": "review", "minimum_version": 1}, {"id": "testing", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"run_id": {"type": "string"}, "pull_request": {"type": "integer"}, "comments": {"type": "array"}}, "required": ["run_id", "pull_request", "comments"]},
+      "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "resolved_comments": {"type": "array"}, "replies": {"type": "array"}}, "required": ["patch", "resolved_comments", "replies"]},
+      "tools": ["state.read", "github.comments.read", "repository.read", "patch.propose"],
+      "budget": {"max_model_calls": 2, "max_input_tokens": 100000, "max_output_tokens": 24000, "max_cost_usd": 10.0, "max_wall_seconds": 600},
+      "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
+    },
+    {
+      "id": "resume",
+      "version": 1,
+      "description": "Resume a run from its last verified checkpoint after revalidating immutable inputs.",
+      "stage": "control",
+      "model_tier": "none",
+      "policies": [{"id": "security", "minimum_version": 1}, {"id": "review", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"]},
+      "output_schema": {"type": "object", "properties": {"stage": {"type": "string"}, "status": {"type": "string"}, "checkpoint": {"type": "object"}}, "required": ["stage", "status", "checkpoint"]},
+      "tools": ["state.read", "artifact.verify", "repository.revision-check"],
+      "budget": {"max_model_calls": 0, "max_input_tokens": 0, "max_output_tokens": 0, "max_cost_usd": 0, "max_wall_seconds": 120},
+      "retry": {"max_attempts": 2, "retryable": ["database_timeout", "github_read_timeout"]}
+    }
+  ]
+}

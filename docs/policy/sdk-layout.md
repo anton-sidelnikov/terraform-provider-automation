@@ -1,9 +1,9 @@
 # SDK Layout Policy
 
+Policy ID: sdk-layout  
 Status: Adopted  
 Version: 1  
 Adopted: 2026-08-06
-Policy ID: sdk-layout
 
 ## 1. Scope
 

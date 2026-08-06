@@ -5,31 +5,21 @@ Status: Adopted
 Version: 1  
 Adopted: 2026-08-06
 
-## 1. SDK dependency barrier
+## 1. SDK barrier
 
-Provider generation may begin only from a reviewed and merged SDK pull request with an independently verified immutable commit SHA.
+Provider work starts only from an independently verified, merged SDK pull request and immutable commit SHA.
 
-## 2. Repository structure
+## 2. Implementation
 
-Implementations belong under `opentelekomcloud/services/<service>/`, acceptance tests under `opentelekomcloud/acceptance/<service>/`, user documentation under `docs/resources/` or `docs/data-sources/`, and release notes under `releasenotes/notes/`.
+Schema, CRUD/read behavior, not-found handling, eventual consistency, timeouts, sensitivity, import, migration, and SDK error propagation must match the approved contract.
 
-## 3. Schema and lifecycle
+## 3. Repository surfaces
 
-Schemas must define correct types, validators, sensitivity, defaults, conflicts, `ForceNew`, and timeout behavior. CRUD and read paths must handle not-found state, eventual consistency, SDK errors, import identifiers, and state migration where applicable.
+Changes include the target service, acceptance tests, required registration, matching documentation, and a Reno note. Dependency files are executor-owned.
 
-## 4. Documentation and release notes
+## 4. Review checklist
 
-Documentation must include an API-reference link, executable example, argument and attribute parity, import syntax when supported, and timeouts when applicable. A Reno note must use the correct category and describe user-visible behavior.
-
-## 5. Scope
-
-The patch may change only the target service, its acceptance tests, required registration, matching documentation, release notes, and executor-owned SDK dependency files. Unrelated dependency or formatting updates are forbidden.
-
-## 6. Review checklist
-
-- [ ] The SDK merge and immutable revision were verified.
-- [ ] Schema and lifecycle behavior match the approved contract.
-- [ ] Not-found, import, migration, timeout, and sensitive-state behavior were considered.
-- [ ] Documentation matches every schema field.
-- [ ] Acceptance coverage and a valid Reno note are present.
+- [ ] The SDK revision is approved and pinned.
+- [ ] Schema and lifecycle behavior are complete.
+- [ ] Tests, documentation, registration, and release note agree.
 
