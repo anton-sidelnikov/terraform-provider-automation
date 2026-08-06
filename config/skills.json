@@ -73,8 +73,8 @@
       "stage": "review",
       "model_tier": "strong",
       "policies": [{"id": "review", "minimum_version": 1}, {"id": "testing", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
-      "input_schema": {"type": "object", "properties": {"specification": {"type": "object"}, "patch": {"type": "string"}, "evidence": {"type": "array"}, "diagnostics": {"type": "array"}}, "required": ["specification", "patch", "evidence"]},
-      "output_schema": {"type": "object", "properties": {"decision": {"type": "string"}, "findings": {"type": "array"}}, "required": ["decision", "findings"]},
+      "input_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "evidence": {"type": "object"}, "diagnostics": {"type": "array"}}, "required": ["patch", "evidence"]},
+      "output_schema": {"type": "object", "properties": {"status": {"type": "string"}, "review_bundle": {"type": "object"}}, "required": ["status", "review_bundle"]},
       "tools": ["policy.read", "evidence.read", "patch.read", "diagnostics.read"],
       "budget": {"max_model_calls": 1, "max_input_tokens": 100000, "max_output_tokens": 16000, "max_cost_usd": 8.0, "max_wall_seconds": 300},
       "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}

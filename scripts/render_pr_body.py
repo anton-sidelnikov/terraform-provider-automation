@@ -61,13 +61,14 @@ def main() -> int:
 - Patch SHA-256: `{evidence['patch_sha256']}`
 - Skill: `{evidence['skill']['id']}@{evidence['skill']['version']}`
 - Policies: {policies}
+- Workflow: `v{evidence['workflow_version']}` / final artifact `{evidence['workflow_artifacts'][-1]['artifact_sha256']}`
 - Model route: `{evidence['model']}`
 - Estimated model cost: `${evidence['cost_usd']:.6f}`
 
 This is a draft produced by a governed automation workflow. Human review is required; the workflow cannot merge it.
 
 <!-- otc-agent-metadata
-{json.dumps({'schema_version': 2, 'classification': classification['kind'], 'docs_repository': mapping['docs'], 'sdk': mapping['sdk'], 'provider': mapping['provider'], 'automation_run': args.run_url, 'skill': evidence['skill'], 'policies': evidence['policies']}, sort_keys=True)}
+{json.dumps({'schema_version': 3, 'classification': classification['kind'], 'docs_repository': mapping['docs'], 'sdk': mapping['sdk'], 'provider': mapping['provider'], 'automation_run': args.run_url, 'skill': evidence['skill'], 'policies': evidence['policies'], 'workflow_version': evidence['workflow_version'], 'workflow_artifact': evidence['workflow_artifacts'][-1]['artifact_sha256']}, sort_keys=True)}
 -->
 """
     args.output.parent.mkdir(parents=True, exist_ok=True)
