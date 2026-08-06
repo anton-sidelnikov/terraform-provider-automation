@@ -60,6 +60,8 @@ The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometh
 - [Implementation roadmap and task tracker](tasks.md)
 - [Versioned policy registry](docs/policy/README.md)
 
+Governed skills are declared in [`config/skills.json`](config/skills.json). Run `otc-agent policy-check` and `otc-agent skill-check` to validate policy and skill contracts.
+
 ## Repository layout
 
 ```text

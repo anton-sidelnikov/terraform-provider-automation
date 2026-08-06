@@ -7,43 +7,19 @@ Adopted: 2026-08-06
 
 ## 1. Authority
 
-Classification is performed by trusted deterministic code. Caller-provided kinds and model output are hints only and cannot override repository or catalog evidence.
+Trusted deterministic code classifies changes. Caller and model-provided kinds are hints and cannot override catalog or repository evidence.
 
-## 2. Change kinds
+## 2. Kinds
 
-### 2.1 New service
+Use `new_service` for an eligible unmapped service, `feature` for a new operation, `fix` for corrected behavior, `update` for additive fields, and `refactoring` for repository-confirmed legacy layout migration.
 
-Use `new_service` only when an eligible documentation repository has no reviewed SDK/provider mapping.
+## 3. Evidence and confidence
 
-### 2.2 Feature
+Repository evidence takes precedence over request wording. Generation requires confidence of at least `0.70`; ambiguity blocks rather than guesses.
 
-Use `feature` for a new endpoint, operation, route, or HTTP method/path.
+## 4. Review checklist
 
-### 2.3 Fix
-
-Use `fix` for a correction to an existing parameter, request, response, status code, or observable behavior.
-
-### 2.4 Update
-
-Use `update` for additive fields or attributes that do not add a new operation.
-
-### 2.5 Refactoring
-
-Use `refactoring` when repository analysis confirms a legacy or mixed SDK layout requiring operation-per-file migration without intended API behavior changes.
-
-## 3. Evidence precedence
-
-Reviewed catalog mappings and repository analysis take precedence over request wording. Revision-pinned API evidence controls API behavior. Ambiguous text must not be converted into a confident classification by a model.
-
-## 4. Confidence and blocking
-
-Generation requires confidence of at least `0.70`. Lower confidence produces a blocked plan with a specific clarification request. Bootstrap and repository-confirmed refactoring classifications may use confidence `1.0`.
-
-## 5. Review checklist
-
-- [ ] The kind matches the definitions in section 2.
-- [ ] Repository evidence was considered when available.
-- [ ] Caller or model hints did not override trusted evidence.
-- [ ] Confidence meets the generation threshold.
-- [ ] Ambiguity is surfaced rather than guessed.
+- [ ] The kind matches trusted evidence.
+- [ ] Hints did not override repository analysis.
+- [ ] Confidence meets the required threshold.
 

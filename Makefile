@@ -8,6 +8,7 @@ check:
 	$(PYTHON) -m unittest discover -s tests -v
 	$(PYTHON) -m otc_agent.cli catalog-check
 	$(PYTHON) -m otc_agent.cli policy-check
+	$(PYTHON) -m otc_agent.cli skill-check
 	$(PYTHON) -m otc_agent.cli eval --mode offline --dataset evals/offline.jsonl --baseline evals/baseline.json --output build/offline-eval.json
 
 test:
