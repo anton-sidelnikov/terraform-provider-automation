@@ -70,7 +70,7 @@ PR generation runs as ephemeral Actions jobs, so no separate patch-worker servic
 
 - GitHub actions are pinned to immutable SHAs and run on an explicit Ubuntu image.
 - Python and locale/hash/timezone are fixed; runtime code has no third-party dependencies.
-- Model, prompt, catalog, evaluation dataset, price table, and source repository revisions are part of the run manifest.
+- Model, prompt, policy, skill, catalog, evaluation dataset, price table, and source repository revisions are part of the run manifest.
 - Production images must use a base-image digest, locked dependencies with hashes, an SBOM, vulnerability scan, signature, and SLSA provenance. Promote the same digest across environments.
 - Model sampling is not perfectly reproducible. Preserve raw structured output (redacted), deterministic parameters, and the exact evidence so a result is auditable even when it cannot be byte-replayed.
 

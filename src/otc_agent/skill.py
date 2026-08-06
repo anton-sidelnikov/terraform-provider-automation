@@ -51,6 +51,10 @@ class SkillManifest:
         return asdict(self)
 
 
+def default_skill_registry_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "config" / "skills.json"
+
+
 _ROOT_FIELDS = {"schema_version", "skills"}
 _SKILL_FIELDS = {
     "id",
@@ -88,6 +92,45 @@ def load_skill_registry(path: Path, policies: tuple[PolicyContract, ...]) -> tup
     if len(identifiers) != len(set(identifiers)):
         raise SkillError("skill IDs must be unique")
     return manifests
+
+
+def find_skill(skills: tuple[SkillManifest, ...], skill_id: str) -> SkillManifest:
+    for skill in skills:
+        if skill.skill_id == skill_id:
+            return skill
+    raise SkillError(f"unknown skill {skill_id!r}")
+
+
+def validate_skill_input(skill: SkillManifest, value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise SkillError(f"{skill.skill_id}: input must be an object")
+    properties = skill.input_schema["properties"]
+    required = skill.input_schema["required"]
+    unknown = set(value) - set(properties)
+    if unknown:
+        raise SkillError(f"{skill.skill_id}: unknown input fields: {', '.join(sorted(unknown))}")
+    missing = set(required) - set(value)
+    if missing:
+        raise SkillError(f"{skill.skill_id}: missing input fields: {', '.join(sorted(missing))}")
+    for field, item in value.items():
+        expected = properties[field].get("type")
+        if not _matches_type(item, expected):
+            raise SkillError(f"{skill.skill_id}: input field {field!r} must be {expected}")
+    return value
+
+
+def skill_identity(skill: SkillManifest, policies: tuple[PolicyContract, ...]) -> dict[str, object]:
+    versions = {policy.policy_id: policy.version for policy in policies}
+    return {
+        "id": skill.skill_id,
+        "version": skill.version,
+        "stage": skill.stage,
+        "model_tier": skill.model_tier,
+        "policies": [
+            {"id": reference.policy_id, "version": versions[reference.policy_id]}
+            for reference in skill.policies
+        ],
+    }
 
 
 def _parse_skill(value: object, policy_versions: dict[str, int]) -> SkillManifest:
@@ -184,3 +227,18 @@ def _parse_retry(skill_id: str, value: object) -> SkillRetry:
         raise SkillError(f"{skill_id}: retryable must be a string array")
     return SkillRetry(attempts, tuple(retryable))
 
+
+def _matches_type(value: object, expected: object) -> bool:
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "object":
+        return isinstance(value, dict)
+    return False

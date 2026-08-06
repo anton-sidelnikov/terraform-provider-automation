@@ -8,7 +8,7 @@
       "stage": "explore",
       "model_tier": "fast",
       "policies": [{"id": "change-classification", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
-      "input_schema": {"type": "object", "properties": {"service": {"type": "string"}, "sdk_root": {"type": "string"}, "description": {"type": "string"}}, "required": ["service", "description"]},
+      "input_schema": {"type": "object", "properties": {"service": {"type": "string"}, "sdk_root": {"type": "string"}, "description": {"type": "string"}, "docs_repository": {"type": "string"}, "issue_url": {"type": "string"}}, "required": ["service", "description"]},
       "output_schema": {"type": "object", "properties": {"classification": {"type": "object"}, "layout": {"type": "object"}, "gaps": {"type": "array"}}, "required": ["classification", "gaps"]},
       "tools": ["catalog.read", "repository.read", "sdk-layout.analyze", "retrieval.query"],
       "budget": {"max_model_calls": 1, "max_input_tokens": 20000, "max_output_tokens": 4000, "max_cost_usd": 1.0, "max_wall_seconds": 120},
@@ -38,6 +38,32 @@
       "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "citations": {"type": "array"}, "compatibility": {"type": "object"}}, "required": ["patch", "citations", "compatibility"]},
       "tools": ["repository.read", "patch.propose"],
       "budget": {"max_model_calls": 2, "max_input_tokens": 120000, "max_output_tokens": 30000, "max_cost_usd": 12.0, "max_wall_seconds": 600},
+      "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
+    },
+    {
+      "id": "generate-sdk",
+      "version": 1,
+      "description": "Generate a cited SDK candidate for an approved non-refactoring change specification.",
+      "stage": "implement",
+      "model_tier": "strong",
+      "policies": [{"id": "sdk-coding", "minimum_version": 1}, {"id": "testing", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"plan": {"type": "object"}, "sdk_root": {"type": "string"}, "docs_root": {"type": "string"}}, "required": ["plan", "sdk_root", "docs_root"]},
+      "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "evidence": {"type": "object"}}, "required": ["patch", "evidence"]},
+      "tools": ["repository.read", "retrieval.query", "patch.propose", "tests.run"],
+      "budget": {"max_model_calls": 2, "max_input_tokens": 150000, "max_output_tokens": 40000, "max_cost_usd": 15.0, "max_wall_seconds": 900},
+      "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
+    },
+    {
+      "id": "generate-provider",
+      "version": 1,
+      "description": "Generate a provider candidate from an approved and pinned SDK revision.",
+      "stage": "implement",
+      "model_tier": "strong",
+      "policies": [{"id": "provider-coding", "minimum_version": 1}, {"id": "testing", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
+      "input_schema": {"type": "object", "properties": {"plan": {"type": "object"}, "provider_root": {"type": "string"}, "sdk_root": {"type": "string"}, "docs_root": {"type": "string"}, "sdk_revision": {"type": "string"}}, "required": ["plan", "provider_root", "sdk_root", "docs_root", "sdk_revision"]},
+      "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "evidence": {"type": "object"}}, "required": ["patch", "evidence"]},
+      "tools": ["repository.read", "retrieval.query", "patch.propose", "dependency.pin", "tests.run"],
+      "budget": {"max_model_calls": 2, "max_input_tokens": 150000, "max_output_tokens": 40000, "max_cost_usd": 15.0, "max_wall_seconds": 1200},
       "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
     },
     {
