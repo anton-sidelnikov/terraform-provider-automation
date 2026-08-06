@@ -54,6 +54,8 @@ Every accepted phase serializes a canonical JSON payload, records its SHA-256 di
 
 The review boundary reconstructs and verifies the complete artifact chain, then creates a separate review bundle containing only the frozen `EXPLORE` through `VERIFY` artifacts, the digest-matched patch, and allow-listed deterministic diagnostics. Raw prompts, messages, conversation history, and hidden author reasoning are not copied into reviewer context.
 
+Reviewer execution uses a separately configured model route. Trusted routing code compares capability tiers before the call and requires reviewer strength to be equal to or greater than the author strength recorded by the generation skill. The exact same endpoint/model identity cannot review its own output.
+
 ## Retrieval
 
 The retrieval broker indexes only:
@@ -69,7 +71,7 @@ Vector indexes are caches, never sources of truth. They are rebuilt for a specif
 
 ## Model routing
 
-Use an internal OpenAI-compatible gateway so approved frontier, open-weight, and coding models can be evaluated behind one contract. Route low-risk extraction to the smallest model that meets the quality gate; use a stronger coding model for patch proposals. Model identity, endpoint, parameters, prompt version, token counts, latency, and price-table version are recorded.
+Use GitHub Copilot SDK and its CLI-authenticated runtime as the default model backend. The provider-neutral model contract keeps an OpenAI-compatible BYOK adapter available for approved deployments that require it. Route low-risk extraction to the smallest model that meets the quality gate; use a stronger coding model for patch proposals. Provider, model identity, runtime endpoint, parameters, prompt version, token counts, latency, and available cost metadata are recorded.
 
 Temperature is zero for extraction/review and low for code generation. A fallback model is allowed once for a transient outage. It is not allowed when policy rejected the primary output, since switching models does not remove the unsafe requirement.
 

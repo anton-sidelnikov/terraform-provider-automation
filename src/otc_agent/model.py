@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import json
-import os
 import math
+import os
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from copilot import CopilotClient, RuntimeConnection
+from copilot.client import JsonRpcError, ProcessExitedError
+from copilot.session_events import AssistantMessageData
 
 from .budget import Budget
 from .resilience import RetryPolicy, retry
@@ -23,10 +28,107 @@ class ModelResult:
     input_tokens: int
     output_tokens: int
     cost_usd: float
+    provider: str = "unknown"
+    endpoint: str | None = None
 
 
 class StructuredModel(Protocol):
     def generate_json(self, *, system: str, user: str, budget: Budget) -> ModelResult: ...
+
+
+class CopilotSDKModel:
+    """GitHub Copilot SDK adapter using CLI authentication and tool-free sessions."""
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        timeout_seconds: float = 120,
+        cli_path: str | None = None,
+        runtime_url: str | None = None,
+        github_token: str | None = None,
+        client_factory: Callable[..., CopilotClient] = CopilotClient,
+    ):
+        if not model:
+            raise ModelError("Copilot model name is required")
+        if cli_path and runtime_url:
+            raise ModelError("configure either a Copilot CLI path or runtime URL, not both")
+        self.model = model
+        self.timeout_seconds = timeout_seconds
+        self.cli_path = cli_path
+        self.runtime_url = runtime_url
+        self.github_token = github_token
+        self.client_factory = client_factory
+
+    @classmethod
+    def from_environment(cls, *, prefix: str = "OTC_MODEL") -> "CopilotSDKModel":
+        return cls(
+            os.environ.get(f"{prefix}_NAME", ""),
+            timeout_seconds=float(os.environ.get(f"{prefix}_TIMEOUT_SECONDS") or "120"),
+            cli_path=os.environ.get("OTC_COPILOT_CLI_PATH") or None,
+            runtime_url=os.environ.get("OTC_COPILOT_RUNTIME_URL") or None,
+            github_token=os.environ.get("COPILOT_GITHUB_TOKEN") or None,
+        )
+
+    @property
+    def endpoint(self) -> str:
+        if self.runtime_url:
+            return self.runtime_url
+        if self.cli_path:
+            return f"stdio:{self.cli_path}"
+        return "stdio:bundled"
+
+    def generate_json(self, *, system: str, user: str, budget: Budget) -> ModelResult:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self._generate_json(system=system, user=user, budget=budget))
+        raise ModelError("CopilotSDKModel cannot run synchronously inside an active asyncio event loop")
+
+    async def _generate_json(self, *, system: str, user: str, budget: Budget) -> ModelResult:
+        connection = None
+        if self.runtime_url:
+            connection = RuntimeConnection.for_uri(self.runtime_url)
+        elif self.cli_path:
+            connection = RuntimeConnection.for_stdio(path=self.cli_path)
+        client = self.client_factory(
+            connection=connection,
+            github_token=self.github_token,
+            mode="empty",
+            use_logged_in_user=None if self.github_token is None else False,
+        )
+        try:
+            async with client:
+                async with await client.create_session(
+                    model=self.model,
+                    tools=[],
+                    available_tools=[],
+                    system_message={"mode": "replace", "content": system},
+                    enable_session_store=False,
+                    enable_config_discovery=False,
+                    skip_custom_instructions=True,
+                    skip_embedding_retrieval=True,
+                    enable_skills=False,
+                ) as session:
+                    response = await session.send_and_wait(user, timeout=self.timeout_seconds)
+        except (JsonRpcError, ProcessExitedError, OSError, TimeoutError) as exc:
+            raise ModelError("GitHub Copilot SDK request failed") from exc
+        if response is None or not isinstance(response.data, AssistantMessageData):
+            raise ModelError("GitHub Copilot SDK returned no assistant message")
+        content = response.data.content
+        value = _parse_json_object(content)
+        input_tokens = math.ceil((len(system) + len(user)) / 4)
+        output_tokens = response.data.output_tokens or math.ceil(len(content) / 4)
+        budget.charge(input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=0)
+        return ModelResult(
+            value=value,
+            model=response.data.model or self.model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=0,
+            provider="copilot",
+            endpoint=self.endpoint,
+        )
 
 
 class OpenAICompatibleModel:
@@ -119,7 +221,34 @@ class OpenAICompatibleModel:
             + output_tokens * self.output_cost_per_million / 1_000_000
         )
         budget.charge(input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=cost)
-        return ModelResult(value, self.model, input_tokens, output_tokens, cost)
+        return ModelResult(
+            value,
+            self.model,
+            input_tokens,
+            output_tokens,
+            cost,
+            provider="openai-compatible",
+            endpoint=self.url.removesuffix("/chat/completions"),
+        )
+
+
+def model_from_environment(*, role: str = "author") -> StructuredModel:
+    prefix = "OTC_REVIEW_MODEL" if role == "reviewer" else "OTC_MODEL"
+    provider = os.environ.get(f"{prefix}_PROVIDER", "copilot").strip().lower()
+    if provider == "copilot":
+        return CopilotSDKModel.from_environment(prefix=prefix)
+    if provider == "openai-compatible":
+        if role == "author":
+            return OpenAICompatibleModel.from_environment()
+        return OpenAICompatibleModel(
+            os.environ.get(f"{prefix}_BASE_URL", ""),
+            os.environ.get(f"{prefix}_API_KEY", ""),
+            os.environ.get(f"{prefix}_NAME", ""),
+            timeout_seconds=float(os.environ.get(f"{prefix}_TIMEOUT_SECONDS") or "120"),
+            input_cost_per_million=float(os.environ.get(f"{prefix}_INPUT_USD_PER_MILLION") or "0"),
+            output_cost_per_million=float(os.environ.get(f"{prefix}_OUTPUT_USD_PER_MILLION") or "0"),
+        )
+    raise ModelError(f"unsupported model provider {provider!r}")
 
 
 def _parse_json_object(content: str) -> dict[str, object]:

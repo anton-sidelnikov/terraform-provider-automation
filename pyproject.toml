@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { text = "Apache-2.0" }
 authors = [{ name = "OpenTelekomCloud automation maintainers" }]
-dependencies = []
+dependencies = [
+    "github-copilot-sdk==1.0.9",
+]
 
 [project.scripts]
 otc-agent = "otc_agent.cli:main"

@@ -51,6 +51,13 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: ""
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.7"
+          enable-cache: true
+          cache-dependency-glob: automation/uv.lock
+      - name: Install locked automation dependencies
+        run: uv sync --project automation --locked
       - name: Recreate and independently classify plan
         env:
           PYTHONPATH: src
@@ -133,14 +140,11 @@ jobs:
         run: echo "provider=$(git -C workspace/provider rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Generate and validate provider candidate
         env:
-          PYTHONPATH: automation/src
-          OTC_MODEL_BASE_URL: ${{ vars.OTC_MODEL_BASE_URL }}
+          OTC_MODEL_PROVIDER: copilot
           OTC_MODEL_NAME: ${{ vars.OTC_MODEL_NAME }}
-          OTC_MODEL_API_KEY: ${{ secrets.OTC_MODEL_API_KEY }}
-          OTC_MODEL_INPUT_USD_PER_MILLION: ${{ vars.OTC_MODEL_INPUT_USD_PER_MILLION }}
-          OTC_MODEL_OUTPUT_USD_PER_MILLION: ${{ vars.OTC_MODEL_OUTPUT_USD_PER_MILLION }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: >-
-          python -m otc_agent.cli generate-provider
+          uv run --project automation --frozen python -m otc_agent.cli generate-provider
           --plan evidence/build/change-plan.json
           --provider-root workspace/provider
           --sdk-root workspace/sdk

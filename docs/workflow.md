@@ -6,8 +6,8 @@ Create these protected environments:
 
 | Environment                   | Reviewers                  | Secrets/variables                                     | Purpose                                                   |
 |-------------------------------|----------------------------|-------------------------------------------------------|-----------------------------------------------------------|
-| `sdk-proposal`                | SDK maintainers            | model gateway variables and `OTC_MODEL_API_KEY`       | Approve retrieval and SDK candidate generation            |
-| `provider-after-sdk-approval` | SDK + provider maintainers | model gateway variables and `OTC_MODEL_API_KEY`       | Verify merged SDK PR and approve provider generation      |
+| `sdk-proposal`                | SDK maintainers            | `COPILOT_GITHUB_TOKEN`; `OTC_MODEL_NAME` variable     | Approve retrieval and SDK candidate generation            |
+| `provider-after-sdk-approval` | SDK + provider maintainers | `COPILOT_GITHUB_TOKEN`; `OTC_MODEL_NAME` variable     | Verify merged SDK PR and approve provider generation      |
 | `online-evaluation`           | platform/evaluation owners | `OTC_AGENT_EVAL_TOKEN`; `OTC_AGENT_EVAL_URL` variable | Evaluate the deployed service/test tenant                 |
 | `sdk-publish`                 | SDK maintainers            | `OTC_APP_ID`, `OTC_APP_PRIVATE_KEY`                   | Mint a short-lived App token and open an SDK draft PR     |
 | `provider-publish`            | provider maintainers       | `OTC_APP_ID`, `OTC_APP_PRIVATE_KEY`                   | Mint a short-lived App token and open a provider draft PR |
@@ -60,9 +60,13 @@ Required checks include schema types and validators, create/read/update/delete s
 
 Open a separate draft provider PR that links the merged SDK PR and pins the SDK revision. Do not bundle unrelated formatting or dependency updates.
 
-## Model gateway configuration
+## Model configuration
 
-Both generation environments require `OTC_MODEL_BASE_URL` (an OpenAI-compatible base ending in `/v1`), `OTC_MODEL_NAME`, and secret `OTC_MODEL_API_KEY`. Optional price variables are `OTC_MODEL_INPUT_USD_PER_MILLION` and `OTC_MODEL_OUTPUT_USD_PER_MILLION`. The adapter uses JSON mode, temperature zero, bounded retries, token/cost budgets, and never logs prompts or credentials.
+GitHub Copilot SDK is the default backend. Set `OTC_MODEL_NAME` and authenticate the Copilot CLI locally with the logged-in user, or set `COPILOT_GITHUB_TOKEN` in a protected GitHub Actions environment. A normal workflow `GITHUB_TOKEN` does not imply a Copilot entitlement; use a dedicated token belonging to an identity licensed and authorized for Copilot. The SDK downloads its pinned runtime on first use. `OTC_COPILOT_CLI_PATH` selects a provisioned runtime, while `OTC_COPILOT_RUNTIME_URL` connects to an existing headless runtime.
+
+Independent review uses `OTC_REVIEW_MODEL_NAME` and optional `OTC_REVIEW_MODEL_TIER` (`fast` or `strong`, default `strong`). It shares Copilot authentication but must use a distinct provider/runtime/model identity from the author route. The router rejects a weaker or identical reviewer.
+
+BYOK remains an explicit fallback. Set `OTC_MODEL_PROVIDER=openai-compatible` (or `OTC_REVIEW_MODEL_PROVIDER`) together with the corresponding `*_BASE_URL`, `*_NAME`, and `*_API_KEY` variables. Optional price variables remain supported for this backend.
 
 PR generation runs as ephemeral Actions jobs, so no separate patch-worker service is required for the demo. `deploy/` deploys only the stateless planning/metrics API used by online evaluation.
 
