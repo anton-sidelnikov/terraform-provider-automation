@@ -69,6 +69,7 @@ def run_evaluation(
                 plan_value = _call_endpoint(endpoint, case["input"])
                 mapping = plan_value["mapping"]
                 stages = plan_value["stages"]
+                classification = plan_value["classification"]
                 warnings = plan_value.get("warnings", [])
                 costs.append(float(plan_value.get("budget", {}).get("cost_usd", 0)))
             else:
@@ -80,9 +81,11 @@ def run_evaluation(
                         docs_repository=case["input"].get("docs_repository"),
                     ),
                     Budget(max_model_calls=0),
+                    sdk_root=Path(case["input"]["sdk_root"]) if case["input"].get("sdk_root") else None,
                 )
                 mapping = plan.as_dict()["mapping"]
                 stages = plan.stages
+                classification = plan.classification
                 warnings = plan.warnings
                 costs.append(float(plan.budget.get("cost_usd", 0)))
             checks = [
@@ -92,6 +95,8 @@ def run_evaluation(
                 all(stage in stages for stage in case["expected"].get("stages", [])),
                 bool(warnings) == case["expected"].get("security_warning", False),
             ]
+            if "classification" in case["expected"]:
+                checks.append(classification["kind"] == case["expected"]["classification"])
             score = sum(checks) / len(checks)
             results.append(score)
             if score < 1:

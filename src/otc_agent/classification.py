@@ -4,6 +4,7 @@ import re
 from dataclasses import asdict, dataclass
 
 from .domain import ChangeKind, ChangeRequest, ServiceMapping
+from .sdk_layout import SDKLayoutAnalysis
 
 
 @dataclass(frozen=True)
@@ -31,13 +32,27 @@ _CONTRACT_CHANGE = re.compile(
 )
 
 
-def classify_change(request: ChangeRequest, mapping: ServiceMapping) -> Classification:
+def classify_change(
+    request: ChangeRequest,
+    mapping: ServiceMapping,
+    sdk_layout: SDKLayoutAnalysis | None = None,
+) -> Classification:
     """Classify independently of caller input using reviewed product semantics."""
     if mapping.bootstrap:
         return Classification(
             ChangeKind.NEW_SERVICE,
             1.0,
             ("The documentation repository has no reviewed SDK/provider mapping.",),
+        )
+    if sdk_layout and sdk_layout.requires_refactoring:
+        return Classification(
+            ChangeKind.REFACTORING,
+            1.0,
+            (
+                f"The SDK service has a confirmed {sdk_layout.kind.value} layout with "
+                f"{len(sdk_layout.legacy_operations)} operation(s) outside operation-named files.",
+            ),
+            classifier_version="rules-v2",
         )
     description = request.description.strip()
     if _ENDPOINT.search(description):

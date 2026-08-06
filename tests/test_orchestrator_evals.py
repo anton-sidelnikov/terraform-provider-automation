@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 from pathlib import Path
 
 from otc_agent.catalog import Catalog, default_catalog_path
@@ -37,6 +38,22 @@ class OrchestratorAndEvalTests(unittest.TestCase):
                     docs_repository="modelarts",
                 )
             )
+
+    def test_legacy_sdk_layout_adds_refactoring_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            sdk_root = Path(directory)
+            requests = sdk_root / "openstack" / "apigw" / "v2" / "widgets" / "requests.go"
+            requests.parent.mkdir(parents=True)
+            requests.write_text("package widgets\nfunc Create() {}\n", encoding="utf-8")
+
+            plan = Planner(self.catalog).plan(
+                ChangeRequest("apigw", None, "Add a documented endpoint"),
+                sdk_root=sdk_root,
+            )
+
+            self.assertEqual(plan.request.kind, ChangeKind.REFACTORING)
+            self.assertIn("sdk_refactor", plan.stages)
+            self.assertLess(plan.stages.index("sdk_refactor"), plan.stages.index("sdk_plan"))
 
     def test_offline_evaluation_passes(self) -> None:
         report = run_evaluation(Path("evals/offline.jsonl"), self.catalog, mode="offline")

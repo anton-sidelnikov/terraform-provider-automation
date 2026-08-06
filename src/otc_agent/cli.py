@@ -13,6 +13,7 @@ from .generation import generate_provider_candidate, generate_sdk_candidate, pro
 from .model import OpenAICompatibleModel
 from .orchestrator import Planner
 from .patching import provider_policy, sdk_policy, validate_patch
+from .sdk_layout import analyze_sdk_layout
 from .service import serve
 from .telemetry import configure_logging
 
@@ -27,7 +28,12 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--description", required=True)
     plan.add_argument("--docs-repository")
     plan.add_argument("--issue-url")
+    plan.add_argument("--sdk-root", type=Path, help="Optional SDK checkout used for layout-aware classification")
     plan.add_argument("--output", type=Path)
+    analyze_layout = sub.add_parser("analyze-sdk-layout")
+    analyze_layout.add_argument("--sdk-root", type=Path, required=True)
+    analyze_layout.add_argument("--service", required=True)
+    analyze_layout.add_argument("--output", type=Path)
     evaluate = sub.add_parser("eval")
     evaluate.add_argument("--mode", choices=("offline", "online"), required=True)
     evaluate.add_argument("--dataset", type=Path, required=True)
@@ -73,7 +79,8 @@ def main(argv: list[str] | None = None) -> int:
                 description=args.description,
                 docs_repository=args.docs_repository,
                 issue_url=args.issue_url,
-            )
+            ),
+            sdk_root=args.sdk_root,
         )
         output = json.dumps(plan.as_dict(), indent=2, sort_keys=True) + "\n"
         if args.output:
@@ -82,6 +89,15 @@ def main(argv: list[str] | None = None) -> int:
         else:
             sys.stdout.write(output)
         return 0 if plan.status.value != "blocked" else 3
+    if args.command == "analyze-sdk-layout":
+        analysis = analyze_sdk_layout(args.sdk_root, args.service)
+        output = json.dumps(analysis.as_dict(), indent=2, sort_keys=True) + "\n"
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(output, encoding="utf-8")
+        else:
+            sys.stdout.write(output)
+        return 0
     if args.command == "eval":
         endpoint = os.environ.get("OTC_AGENT_EVAL_URL") if args.mode == "online" else None
         baseline_score = None

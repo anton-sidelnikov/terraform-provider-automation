@@ -3,6 +3,7 @@ import unittest
 from otc_agent.catalog import Catalog, default_catalog_path
 from otc_agent.classification import classify_change
 from otc_agent.domain import ChangeKind, ChangeRequest
+from otc_agent.sdk_layout import LayoutKind, OperationLocation, SDKLayoutAnalysis
 
 
 class ClassificationTests(unittest.TestCase):
@@ -42,6 +43,30 @@ class ClassificationTests(unittest.TestCase):
         mapping = self.catalog.resolve("apigw")
         request = ChangeRequest("apigw", ChangeKind.FIX, "Add a new endpoint")
         self.assertEqual(classify_change(request, mapping).kind, ChangeKind.FEATURE)
+
+    def test_repository_layout_overrides_text_classification(self) -> None:
+        mapping = self.catalog.resolve("apigw")
+        layout = SDKLayoutAnalysis(
+            service="apigw",
+            kind=LayoutKind.LEGACY,
+            operations=(
+                OperationLocation(
+                    name="Create",
+                    path="openstack/apigw/v2/widgets/requests.go",
+                    operation_file=False,
+                ),
+            ),
+            legacy_files=("openstack/apigw/v2/widgets/requests.go",),
+        )
+
+        result = classify_change(
+            ChangeRequest("apigw", None, "Add a new endpoint"),
+            mapping,
+            layout,
+        )
+
+        self.assertEqual(result.kind, ChangeKind.REFACTORING)
+        self.assertEqual(result.confidence, 1.0)
 
 
 if __name__ == "__main__":
