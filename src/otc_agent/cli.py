@@ -16,6 +16,12 @@ from .model import model_from_environment
 from .orchestrator import Planner
 from .patching import provider_policy, sdk_policy, validate_patch
 from .policy import PolicyContract, default_policy_root, load_policy_registry
+from .publishing import (
+    build_sdk_pull_request_body,
+    build_publication_metadata,
+    verify_append_only_history,
+    verify_publish_preflight,
+)
 from .review import build_review_bundle, build_review_history, run_independent_review
 from .routing import AuthorRouteIdentity, ModelRouter, parse_model_tier
 from .sdk_layout import analyze_sdk_layout
@@ -296,7 +302,50 @@ def main(argv: list[str] | None = None) -> int:
         }
         _write_json(result, args.output)
         return 0 if status == "ready" else 3
-    if args.command in {"spec", "verify", "publish", "iterate-pr", "resume"}:
+    if args.command == "publish":
+        policies, skills = _skill_contracts()
+        skill = find_skill(skills, "publish")
+        payload = json.loads(args.input.read_text(encoding="utf-8"))
+        validate_skill_input(skill, payload)
+        documentation = catalog.resolve_documentation(payload["documentation_repository"])
+        preflight = verify_publish_preflight(
+            artifact=Path(payload["artifact"]),
+            repository=payload["repository"],
+            base_sha=payload["base_sha"],
+            issue=payload["issue"],
+            routes=tuple(payload["routes"]),
+        )
+        history = verify_append_only_history(
+            worktree=Path(payload["worktree"]),
+            base_sha=payload["base_sha"],
+            candidate_head_sha=payload["candidate_head_sha"],
+            previous_head_sha=payload.get("previous_head_sha"),
+        )
+        publisher_skill = skill_identity(skill, policies)
+        metadata = build_publication_metadata(
+            artifact=Path(payload["artifact"]),
+            preflight=preflight,
+            history=history,
+            publisher_skill=publisher_skill,
+        )
+        pull_request_body = build_sdk_pull_request_body(
+            payload["pull_request_body"],
+            preflight.issue,
+            documentation.docs,
+            tuple(payload.get("depends_on", [])),
+            metadata,
+        )
+        result = {
+            "status": "approved_for_publish",
+            "skill": publisher_skill,
+            "preflight": preflight.as_dict(),
+            "history": history.as_dict(),
+            "metadata": metadata,
+            "pull_request_body": pull_request_body,
+        }
+        _write_json(result, args.output)
+        return 0
+    if args.command in {"spec", "verify", "iterate-pr", "resume"}:
         policies, skills = _skill_contracts()
         skill = find_skill(skills, args.command)
         payload = json.loads(args.input.read_text(encoding="utf-8"))
