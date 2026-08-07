@@ -94,13 +94,13 @@
     },
     {
       "id": "publish",
-      "version": 1,
+      "version": 7,
       "description": "Verify an approved artifact and create or update its governed pull request.",
       "stage": "publish",
       "model_tier": "none",
       "policies": [{"id": "pull-requests", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
-      "input_schema": {"type": "object", "properties": {"artifact": {"type": "string"}, "repository": {"type": "string"}, "base_sha": {"type": "string"}, "issue": {"type": "integer"}}, "required": ["artifact", "repository", "base_sha", "issue"]},
-      "output_schema": {"type": "object", "properties": {"branch": {"type": "string"}, "pull_request_url": {"type": "string"}, "commit_sha": {"type": "string"}}, "required": ["branch", "pull_request_url", "commit_sha"]},
+      "input_schema": {"type": "object", "properties": {"artifact": {"type": "string"}, "repository": {"type": "string"}, "worktree": {"type": "string"}, "base_sha": {"type": "string"}, "candidate_head_sha": {"type": "string"}, "previous_head_sha": {"type": "string"}, "issue": {"type": "integer"}, "routes": {"type": "array"}, "documentation_repository": {"type": "string"}, "pull_request_body": {"type": "string"}, "depends_on": {"type": "array"}}, "required": ["artifact", "repository", "worktree", "base_sha", "candidate_head_sha", "issue", "routes", "documentation_repository", "pull_request_body"]},
+      "output_schema": {"type": "object", "properties": {"status": {"type": "string"}, "skill": {"type": "object"}, "preflight": {"type": "object"}, "history": {"type": "object"}, "metadata": {"type": "object"}, "pull_request_body": {"type": "string"}}, "required": ["status", "skill", "preflight", "history", "metadata", "pull_request_body"]},
       "tools": ["artifact.verify", "git.commit", "git.push", "github.pull-request"],
       "budget": {"max_model_calls": 0, "max_input_tokens": 0, "max_output_tokens": 0, "max_cost_usd": 0, "max_wall_seconds": 300},
       "retry": {"max_attempts": 1, "retryable": []}

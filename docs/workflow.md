@@ -55,6 +55,8 @@ A separate semantic snapshot hashes normalized Go AST declarations, including fu
 
 Migration planning emits one deterministic `migration_id`, branch suffix, and pull-request title per exported operation. A multi-operation plan cannot be applied without choosing one `migration_id`; the resulting patch moves only that route and validates only that route's file/behavior requirements, leaving remaining legacy operations for later append-only pull requests.
 
+Before any Git write, `otc-agent publish` performs a read-only preflight with the authenticated GitHub CLI. It verifies the exact repository, full base commit SHA, regular evidence artifact and digest, and an open issue carrying the configured approval label (`agent-approved` by default). The input must identify exactly one exported SDK operation route. Multiple routes require the same approved issue to carry `agent-multi-route-approved`, or the label configured through `OTC_ROUTE_SCOPE_EXCEPTION_LABEL`. It then renders the governed SDK pull-request body with exactly one `For #<issue>` directive matching that verified issue and authoritative service/API-reference portal links derived from the reviewed documentation catalog. Conflicting issue directives or documentation metadata stop publication. Missing approval, closed issues, malformed GitHub responses, or authentication failures also stop publication.
+
 The generator queries only revision-pinned `api-ref/**/*.rst`, requires citations from retrieved chunks, accepts only a unified diff under `openstack/<sdk>/**`, applies it in a disposable checkout, runs fixed `gofmt`, `go test`, and `go vet` commands, and records a SHA-256 evidence manifest. The local publisher independently verifies the digest/path scope, pushes `agent/<kind>-<service>-<run-id>`, and opens a draft SDK PR.
 
 ### 4. SDK approval continuation
@@ -71,6 +73,12 @@ The SDK PR body contains machine-readable automation metadata. Its mapping and i
 ### 5. Provider proposal
 
 Update `go.mod` to the approved SDK version/commit in the disposable provider worktree. Generate only in the target service, target acceptance-test directory, provider registration files when necessary, `docs/resources` or `docs/data-sources`, and `releasenotes/notes`.
+
+When a provider or infrastructure PR depends on another unmerged pull request, the governed body records each exact GitHub PR URL using the upstream `Depends-On: <url>` convention. Conflicting, duplicate, or non-GitHub dependency references block publication.
+
+Publication also resolves the captured base, candidate head, and optional previously published head as commits in the local worktree. The candidate must be a strict descendant of the base; every review update must be a strict descendant of the previous head. Only an ordinary fast-forward push is permitted, so rebases, amended histories, branch replacement, and force pushes are rejected before GitHub access.
+
+The publisher parses the verified JSON artifact and appends a canonical machine-readable PR-body block. It includes policy references, author and publisher skill identities, artifact/patch/final-workflow hashes, repository and documentation revisions, Git base/head revisions, issue, routes, exception approval, and the fast-forward-only mode. Missing or malformed evidence blocks publication; existing conflicting metadata cannot be replaced silently.
 
 Required checks include schema types and validators, create/read/update/delete semantics, eventual consistency and timeout handling, not-found behavior, import, ForceNew/state migration, sensitive fields, SDK error propagation, unit tests where possible, acceptance tests in a disposable OTC project, documentation example and argument/attribute parity, `terraform fmt`, repository lint/vet/test, and a valid Reno note.
 

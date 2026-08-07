@@ -30,7 +30,21 @@ class SkillTests(unittest.TestCase):
                 "resume",
             },
         )
-        self.assertTrue(all(skill.version == 1 for skill in skills))
+        self.assertEqual(
+            {skill.skill_id: skill.version for skill in skills},
+            {
+                "analyze": 1,
+                "spec": 1,
+                "refactor-sdk": 1,
+                "generate-sdk": 1,
+                "generate-provider": 1,
+                "review": 1,
+                "verify": 1,
+                "publish": 7,
+                "iterate-pr": 1,
+                "resume": 1,
+            },
+        )
         self.assertTrue(all(skill.policies for skill in skills))
         self.assertTrue(all(skill.tools for skill in skills))
 
