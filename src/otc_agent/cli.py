@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -18,6 +19,17 @@ from .policy import PolicyContract, default_policy_root, load_policy_registry
 from .review import build_review_bundle, build_review_history, run_independent_review
 from .routing import AuthorRouteIdentity, ModelRouter, parse_model_tier
 from .sdk_layout import analyze_sdk_layout
+from .sdk_refactor import (
+    apply_operation_file_migration,
+    build_operation_migration_plan,
+    capture_exported_api,
+    capture_semantic_snapshot,
+    select_migration,
+    validate_exported_api_compatibility,
+    validate_operation_file_correspondence,
+    validate_semantic_preservation,
+    verify_refactor_behavior,
+)
 from .service import serve
 from .skill import (
     default_skill_registry_path,
@@ -198,7 +210,93 @@ def main(argv: list[str] | None = None) -> int:
             result["review_history"] = build_review_history(bundle, review).as_dict()
         _write_json(result, args.output)
         return 0
-    if args.command in {"spec", "refactor-sdk", "verify", "publish", "iterate-pr", "resume"}:
+    if args.command == "refactor-sdk":
+        policies, skills = _skill_contracts()
+        skill = find_skill(skills, "refactor-sdk")
+        payload = json.loads(args.input.read_text(encoding="utf-8"))
+        validate_skill_input(skill, payload)
+        sdk_root = Path(payload["sdk_root"])
+        specification = payload["specification"]
+        expected_layout = payload["layout"]
+        if not isinstance(expected_layout, dict):
+            raise ValueError("refactor-sdk layout must be an object")
+        service = expected_layout.get("service")
+        if not isinstance(service, str) or not service:
+            raise ValueError("refactor-sdk layout is missing service")
+        current_layout = analyze_sdk_layout(sdk_root, service)
+        if json.dumps(current_layout.as_dict(), sort_keys=True) != json.dumps(expected_layout, sort_keys=True):
+            raise ValueError("refactor-sdk layout analysis is stale or does not match the SDK checkout")
+        migration_plan = build_operation_migration_plan(sdk_root, current_layout, specification)
+        selected_plan = migration_plan
+        migration_id = payload.get("migration_id")
+        if isinstance(migration_id, str):
+            selected_plan = select_migration(migration_plan, migration_id)
+        status = migration_plan.status
+        compatibility = None
+        semantics = None
+        operation_files = None
+        behavior = None
+        applied_migration = None
+        candidate_sdk_root = payload.get("candidate_sdk_root")
+        apply_migration = payload.get("apply", False)
+        if apply_migration and candidate_sdk_root:
+            raise ValueError("refactor-sdk cannot combine apply with candidate_sdk_root")
+        if apply_migration:
+            if len(migration_plan.operations) > 1 and not migration_id:
+                raise ValueError("refactor-sdk apply requires migration_id for a multi-operation plan")
+            applied_migration = apply_operation_file_migration(sdk_root, selected_plan)
+            compatibility = applied_migration.compatibility
+            semantics = applied_migration.semantics
+            operation_files = applied_migration.operation_files
+            behavior = applied_migration.behavior
+        elif isinstance(candidate_sdk_root, str):
+            candidate_root = Path(candidate_sdk_root)
+            candidate = capture_exported_api(candidate_root, service)
+            compatibility = validate_exported_api_compatibility(
+                migration_plan.exported_api,
+                candidate,
+                migration_plan.approved_api_changes,
+            )
+            if not compatibility.compatible:
+                status = "blocked"
+            semantics = validate_semantic_preservation(
+                migration_plan.semantic_snapshot,
+                capture_semantic_snapshot(candidate_root, service),
+                migration_plan.approved_behavior_changes,
+            )
+            if not semantics.compatible:
+                status = "blocked"
+            operation_files = validate_operation_file_correspondence(
+                candidate_root,
+                service,
+                tuple(item.operation for item in selected_plan.operations) if migration_id else None,
+            )
+            if not operation_files.valid:
+                status = "blocked"
+            behavior = verify_refactor_behavior(
+                candidate_root,
+                service,
+                selected_plan.behavior_requirements,
+            )
+            if not behavior.valid:
+                status = "blocked"
+        result = {
+            "status": status,
+            "skill": skill_identity(skill, policies),
+            "specification_sha256": hashlib.sha256(
+                json.dumps(specification, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+            "migration_plan": migration_plan.as_dict(),
+            "selected_migration": selected_plan.batches[0].as_dict() if migration_id else None,
+            "compatibility": compatibility.as_dict() if compatibility else None,
+            "semantics": semantics.as_dict() if semantics else None,
+            "operation_files": operation_files.as_dict() if operation_files else None,
+            "behavior": behavior.as_dict() if behavior else None,
+            "applied_migration": applied_migration.as_dict() if applied_migration else None,
+        }
+        _write_json(result, args.output)
+        return 0 if status == "ready" else 3
+    if args.command in {"spec", "verify", "publish", "iterate-pr", "resume"}:
         policies, skills = _skill_contracts()
         skill = find_skill(skills, args.command)
         payload = json.loads(args.input.read_text(encoding="utf-8"))

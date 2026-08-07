@@ -30,12 +30,12 @@
     {
       "id": "refactor-sdk",
       "version": 1,
-      "description": "Migrate a confirmed legacy SDK package to operation-per-file structure.",
+      "description": "Plan and migrate a confirmed legacy SDK package to operation-per-file structure.",
       "stage": "implement",
       "model_tier": "strong",
       "policies": [{"id": "sdk-layout", "minimum_version": 1}, {"id": "sdk-coding", "minimum_version": 1}, {"id": "testing", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
-      "input_schema": {"type": "object", "properties": {"specification": {"type": "object"}, "layout": {"type": "object"}, "sdk_root": {"type": "string"}}, "required": ["specification", "layout", "sdk_root"]},
-      "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "citations": {"type": "array"}, "compatibility": {"type": "object"}}, "required": ["patch", "citations", "compatibility"]},
+      "input_schema": {"type": "object", "properties": {"specification": {"type": "object"}, "layout": {"type": "object"}, "sdk_root": {"type": "string"}, "candidate_sdk_root": {"type": "string"}, "migration_id": {"type": "string"}, "apply": {"type": "boolean"}}, "required": ["specification", "layout", "sdk_root"]},
+      "output_schema": {"type": "object", "properties": {"status": {"type": "string"}, "migration_plan": {"type": "object"}, "selected_migration": {"type": "object"}, "compatibility": {"type": "object"}, "semantics": {"type": "object"}, "operation_files": {"type": "object"}, "behavior": {"type": "object"}, "applied_migration": {"type": "object"}}, "required": ["status", "migration_plan"]},
       "tools": ["repository.read", "patch.propose"],
       "budget": {"max_model_calls": 3, "max_input_tokens": 220000, "max_output_tokens": 70000, "max_cost_usd": 27.0, "max_wall_seconds": 1200},
       "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
