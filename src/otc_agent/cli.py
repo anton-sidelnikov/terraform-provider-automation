@@ -15,7 +15,7 @@ from .model import model_from_environment
 from .orchestrator import Planner
 from .patching import provider_policy, sdk_policy, validate_patch
 from .policy import PolicyContract, default_policy_root, load_policy_registry
-from .review import build_review_bundle, run_independent_review
+from .review import build_review_bundle, build_review_history, run_independent_review
 from .routing import AuthorRouteIdentity, ModelRouter, parse_model_tier
 from .sdk_layout import analyze_sdk_layout
 from .service import serve
@@ -195,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             result["status"] = "reviewed"
             result["review"] = review.as_dict()
+            result["review_history"] = build_review_history(bundle, review).as_dict()
         _write_json(result, args.output)
         return 0
     if args.command in {"spec", "refactor-sdk", "verify", "publish", "iterate-pr", "resume"}:

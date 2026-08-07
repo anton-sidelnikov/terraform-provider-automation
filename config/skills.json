@@ -37,7 +37,7 @@
       "input_schema": {"type": "object", "properties": {"specification": {"type": "object"}, "layout": {"type": "object"}, "sdk_root": {"type": "string"}}, "required": ["specification", "layout", "sdk_root"]},
       "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "citations": {"type": "array"}, "compatibility": {"type": "object"}}, "required": ["patch", "citations", "compatibility"]},
       "tools": ["repository.read", "patch.propose"],
-      "budget": {"max_model_calls": 2, "max_input_tokens": 120000, "max_output_tokens": 30000, "max_cost_usd": 12.0, "max_wall_seconds": 600},
+      "budget": {"max_model_calls": 3, "max_input_tokens": 220000, "max_output_tokens": 70000, "max_cost_usd": 27.0, "max_wall_seconds": 1200},
       "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
     },
     {
@@ -50,7 +50,7 @@
       "input_schema": {"type": "object", "properties": {"plan": {"type": "object"}, "sdk_root": {"type": "string"}, "docs_root": {"type": "string"}}, "required": ["plan", "sdk_root", "docs_root"]},
       "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "evidence": {"type": "object"}}, "required": ["patch", "evidence"]},
       "tools": ["repository.read", "retrieval.query", "patch.propose", "tests.run"],
-      "budget": {"max_model_calls": 2, "max_input_tokens": 150000, "max_output_tokens": 40000, "max_cost_usd": 15.0, "max_wall_seconds": 900},
+      "budget": {"max_model_calls": 3, "max_input_tokens": 250000, "max_output_tokens": 80000, "max_cost_usd": 30.0, "max_wall_seconds": 1500},
       "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
     },
     {
@@ -63,7 +63,7 @@
       "input_schema": {"type": "object", "properties": {"plan": {"type": "object"}, "provider_root": {"type": "string"}, "sdk_root": {"type": "string"}, "docs_root": {"type": "string"}, "sdk_revision": {"type": "string"}}, "required": ["plan", "provider_root", "sdk_root", "docs_root", "sdk_revision"]},
       "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "evidence": {"type": "object"}}, "required": ["patch", "evidence"]},
       "tools": ["repository.read", "retrieval.query", "patch.propose", "dependency.pin", "tests.run"],
-      "budget": {"max_model_calls": 2, "max_input_tokens": 150000, "max_output_tokens": 40000, "max_cost_usd": 15.0, "max_wall_seconds": 1200},
+      "budget": {"max_model_calls": 3, "max_input_tokens": 250000, "max_output_tokens": 80000, "max_cost_usd": 30.0, "max_wall_seconds": 1800},
       "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
     },
     {
@@ -76,7 +76,7 @@
       "input_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "evidence": {"type": "object"}, "diagnostics": {"type": "array"}}, "required": ["patch", "evidence"]},
       "output_schema": {"type": "object", "properties": {"status": {"type": "string"}, "review_bundle": {"type": "object"}}, "required": ["status", "review_bundle"]},
       "tools": ["policy.read", "evidence.read", "patch.read", "diagnostics.read"],
-      "budget": {"max_model_calls": 1, "max_input_tokens": 100000, "max_output_tokens": 16000, "max_cost_usd": 8.0, "max_wall_seconds": 300},
+      "budget": {"max_model_calls": 3, "max_input_tokens": 200000, "max_output_tokens": 48000, "max_cost_usd": 24.0, "max_wall_seconds": 900},
       "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
     },
     {

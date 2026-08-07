@@ -33,6 +33,10 @@ The contract analyst first produces a typed contract and gap list. Missing or co
 
 Run trusted commands selected by the service adapter (not by a model), normally repository-native format, vet, lint, unit tests, and the smallest safe acceptance subset. Bound each command by time, CPU, memory, output size, and network policy. A repair loop gets diagnostics and the original evidence, with at most two attempts.
 
+Only an independent `request_changes` decision can start repair. Each repair is a complete replacement diff against the original revision, passes deterministic validation before rereview, and is reviewed in a fresh context-isolated bundle. An `approve` decision ends the loop, `block` stops immediately, and a third repair attempt is rejected.
+
+The review output includes an append-only, hash-linked journal. It stores the complete initial proposal, deterministic diagnostics, review decisions and findings, every replacement repair proposal, and every repair validation/rereview result. Canonical payload and chain digests make removal, reordering, or modification detectable.
+
 The generator queries only revision-pinned `api-ref/**/*.rst`, requires citations from retrieved chunks, accepts only a unified diff under `openstack/<sdk>/**`, applies it in a disposable checkout, runs fixed `gofmt`, `go test`, and `go vet` commands, and records a SHA-256 evidence manifest. The local publisher independently verifies the digest/path scope, pushes `agent/<kind>-<service>-<run-id>`, and opens a draft SDK PR.
 
 ### 4. SDK approval continuation
