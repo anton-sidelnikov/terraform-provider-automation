@@ -1,30 +1,24 @@
 # SDK-first delivery workflow
 
-## GitHub setup
+## Execution boundary
 
-Create these protected environments:
+Generation, review, repair, and pull-request iteration run from the local `otc-agent` CLI. GitHub Actions never receive Copilot credentials and never execute model-backed commands. Repository workflows are limited to deterministic CI, catalog auditing, release checks, and optional online evaluation.
 
-| Environment                   | Reviewers                  | Secrets/variables                                     | Purpose                                                   |
-|-------------------------------|----------------------------|-------------------------------------------------------|-----------------------------------------------------------|
-| `sdk-proposal`                | SDK maintainers            | model gateway variables and `OTC_MODEL_API_KEY`       | Approve retrieval and SDK candidate generation            |
-| `provider-after-sdk-approval` | SDK + provider maintainers | model gateway variables and `OTC_MODEL_API_KEY`       | Verify merged SDK PR and approve provider generation      |
-| `online-evaluation`           | platform/evaluation owners | `OTC_AGENT_EVAL_TOKEN`; `OTC_AGENT_EVAL_URL` variable | Evaluate the deployed service/test tenant                 |
-| `sdk-publish`                 | SDK maintainers            | `OTC_APP_ID`, `OTC_APP_PRIVATE_KEY`                   | Mint a short-lived App token and open an SDK draft PR     |
-| `provider-publish`            | provider maintainers       | `OTC_APP_ID`, `OTC_APP_PRIVATE_KEY`                   | Mint a short-lived App token and open a provider draft PR |
+The local run checks out and revision-pins the automation, SDK, provider, and documentation repositories. It stores the resulting plan, patch, frozen artifacts, and evidence locally. Publishing uses the operator's authenticated GitHub CLI session or a narrowly scoped GitHub App credential; model execution and GitHub write credentials remain separate.
 
-Enable branch protection and require `CI / offline-verification`, repository-native Go checks, evaluation gates, and CODEOWNERS review. Pin the default SDK/provider/docs branches to captured commit SHAs in each run; never continue from a moving branch.
+Enable branch protection and require `CI / offline-verification`, repository-native Go checks, evaluation gates, and CODEOWNERS review.
 
 ## Workflow sequence
 
 ### 1. Intake
 
-A maintainer dispatches `.github/workflows/agentic-change.yml` and provides the exact repository slug from `opentelekomcloud-docs`, for example `api-gateway`, plus a change description. There is no manual `kind`: trusted rules classify `feature` (new endpoint/operation), `fix` (changed parameter/request/response), `update` (added attributes/fields), or `new_service` (unmapped repository). Confidence below 0.70 blocks generation. A service key is optional and needed for ambiguous variants or to override a proposed bootstrap abbreviation.
+A maintainer invokes the local CLI with the exact repository slug from `opentelekomcloud-docs`, for example `api-gateway`, plus a change description. There is no manual `kind`: trusted rules classify `feature` (new endpoint/operation), `fix` (changed parameter/request/response), `update` (added attributes/fields), or `new_service` (unmapped repository). Confidence below 0.70 blocks generation. A service key is optional and needed for ambiguous variants or to override a proposed bootstrap abbreviation.
 
-If the repository is api-ref eligible but absent from the mapping table, the plan enters `service_discovery` and proposes a deterministic abbreviation (one word stays intact; a hyphenated service uses its initials). Approval of `sdk-proposal` approves that proposal; a maintainer can instead provide `service_key`. The next stage creates the complete SDK service and tests. Provider generation remains locked behind the normal SDK merge/approval barrier.
+If the repository is api-ref eligible but absent from the mapping table, the plan enters `service_discovery` and proposes a deterministic abbreviation (one word stays intact; a hyphenated service uses its initials). A maintainer approves that proposal locally or reruns with an explicit `service_key`. The next stage creates the complete SDK service and tests. Provider generation remains locked behind the normal SDK merge/approval barrier.
 
 ### 2. Evidence retrieval
 
-After `sdk-proposal` approval, check out:
+After local plan approval, check out:
 
 - `opentelekomcloud/gophertelekomcloud`;
 - the mapped `opentelekomcloud-docs/<slug>` repository;
@@ -39,11 +33,11 @@ The contract analyst first produces a typed contract and gap list. Missing or co
 
 Run trusted commands selected by the service adapter (not by a model), normally repository-native format, vet, lint, unit tests, and the smallest safe acceptance subset. Bound each command by time, CPU, memory, output size, and network policy. A repair loop gets diagnostics and the original evidence, with at most two attempts.
 
-The generator queries only revision-pinned `api-ref/**/*.rst`, requires citations from retrieved chunks, accepts only a unified diff under `openstack/<sdk>/**`, applies it in a disposable checkout, runs fixed `gofmt`, `go test`, and `go vet` commands, and records a SHA-256 evidence manifest. The `sdk-publish` job independently verifies the digest/path scope, mints a one-hour repository-scoped GitHub App token, pushes `agent/<kind>-<service>-<run-id>`, and opens a draft SDK PR.
+The generator queries only revision-pinned `api-ref/**/*.rst`, requires citations from retrieved chunks, accepts only a unified diff under `openstack/<sdk>/**`, applies it in a disposable checkout, runs fixed `gofmt`, `go test`, and `go vet` commands, and records a SHA-256 evidence manifest. The local publisher independently verifies the digest/path scope, pushes `agent/<kind>-<service>-<run-id>`, and opens a draft SDK PR.
 
 ### 4. SDK approval continuation
 
-A maintainer dispatches `.github/workflows/provider-change.yml` with the merged SDK PR number and the original repository/service/description. The workflow fetches the PR and validates that:
+A maintainer continues the local run with the merged SDK PR number and the original repository/service/description. The tool fetches the PR and validates that:
 
 - the repository is exactly `opentelekomcloud/gophertelekomcloud`;
 - the commit is reachable from the protected default branch;
@@ -60,15 +54,19 @@ Required checks include schema types and validators, create/read/update/delete s
 
 Open a separate draft provider PR that links the merged SDK PR and pins the SDK revision. Do not bundle unrelated formatting or dependency updates.
 
-## Model gateway configuration
+## Model configuration
 
-Both generation environments require `OTC_MODEL_BASE_URL` (an OpenAI-compatible base ending in `/v1`), `OTC_MODEL_NAME`, and secret `OTC_MODEL_API_KEY`. Optional price variables are `OTC_MODEL_INPUT_USD_PER_MILLION` and `OTC_MODEL_OUTPUT_USD_PER_MILLION`. The adapter uses JSON mode, temperature zero, bounded retries, token/cost budgets, and never logs prompts or credentials.
+GitHub Copilot SDK is the default backend. Set `OTC_MODEL_NAME` and authenticate the Copilot CLI locally with the logged-in user, or export `COPILOT_GITHUB_TOKEN` for a licensed and authorized identity. The SDK downloads its pinned runtime on first use. `OTC_COPILOT_CLI_PATH` selects a provisioned runtime, while `OTC_COPILOT_RUNTIME_URL` connects to an existing headless runtime.
 
-PR generation runs as ephemeral Actions jobs, so no separate patch-worker service is required for the demo. `deploy/` deploys only the stateless planning/metrics API used by online evaluation.
+Independent review uses `OTC_REVIEW_MODEL_NAME` and optional `OTC_REVIEW_MODEL_TIER` (`fast` or `strong`, default `strong`). It shares Copilot authentication but must use a distinct provider/runtime/model identity from the author route. The router rejects a weaker or identical reviewer.
+
+BYOK remains an explicit fallback. Set `OTC_MODEL_PROVIDER=openai-compatible` (or `OTC_REVIEW_MODEL_PROVIDER`) together with the corresponding `*_BASE_URL`, `*_NAME`, and `*_API_KEY` variables. Optional price variables remain supported for this backend.
+
+GitHub Actions do not run generation or publishing. `deploy/` deploys only the credential-free stateless planning/metrics API used by remote clients and online evaluation. Tagged releases attach Python CLI distributions and publish a separately signed OCI image for this API.
 
 ## Reproducibility
 
-- GitHub actions are pinned to immutable SHAs and run on an explicit Ubuntu image.
+- Remaining GitHub Actions are pinned to immutable SHAs and run on an explicit Ubuntu image.
 - Python and locale/hash/timezone are fixed; runtime code has no third-party dependencies.
 - Model, prompt, policy, skill, catalog, evaluation dataset, price table, and source repository revisions are part of the run manifest.
 - Production images must use a base-image digest, locked dependencies with hashes, an SBOM, vulnerability scan, signature, and SLSA provenance. Promote the same digest across environments.
@@ -81,4 +79,4 @@ PR generation runs as ephemeral Actions jobs, so no separate patch-worker servic
 - newly discovered or removed API-reference repositories;
 - all API-reference repositories that still have no SDK/provider mapping.
 
-Discovery does not start generation automatically. For a new repository, review the API relevance, add only its slug to `eligible_docs_repositories`, merge that catalog PR, and manually launch `Generate SDK pull request` with the repository slug. The bootstrap workflow proposes an abbreviation and then owns SDK-first creation.
+Discovery does not start generation automatically. For a new repository, review the API relevance, add only its slug to `eligible_docs_repositories`, merge that catalog PR, and start the local CLI with the repository slug. The bootstrap stage proposes an abbreviation and then owns SDK-first creation.

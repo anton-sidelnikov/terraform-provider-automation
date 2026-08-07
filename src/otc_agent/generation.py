@@ -42,6 +42,8 @@ class GenerationEvidence:
     changed_paths: tuple[str, ...]
     patch_sha256: str
     model: str
+    model_provider: str
+    model_endpoint: str | None
     input_tokens: int
     output_tokens: int
     cost_usd: float
@@ -309,6 +311,8 @@ def _generate(
         changed_paths=changed,
         patch_sha256=patch_digest,
         model=result.model,
+        model_provider=result.provider,
+        model_endpoint=result.endpoint,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
         cost_usd=result.cost_usd,

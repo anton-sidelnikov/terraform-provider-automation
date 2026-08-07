@@ -5,4 +5,4 @@ metadata:
 data:
   PYTHONHASHSEED: "0"
   PYTHONUNBUFFERED: "1"
-
+  TZ: "UTC"

@@ -6,15 +6,17 @@ import os
 import sys
 from pathlib import Path
 
+from .budget import Budget
 from .catalog import Catalog, default_catalog_path
 from .domain import ChangeKind, ChangeRequest
 from .evals import run_evaluation
 from .generation import generate_provider_candidate, generate_sdk_candidate, provider_publish_policy
-from .model import OpenAICompatibleModel
+from .model import model_from_environment
 from .orchestrator import Planner
 from .patching import provider_policy, sdk_policy, validate_patch
 from .policy import PolicyContract, default_policy_root, load_policy_registry
-from .review import build_review_bundle
+from .review import build_review_bundle, run_independent_review
+from .routing import AuthorRouteIdentity, ModelRouter, parse_model_tier
 from .sdk_layout import analyze_sdk_layout
 from .service import serve
 from .skill import (
@@ -66,6 +68,8 @@ def _parser() -> argparse.ArgumentParser:
         command = sub.add_parser(skill_id)
         command.add_argument("--input", type=Path, required=True)
         command.add_argument("--output", type=Path)
+        if skill_id == "review":
+            command.add_argument("--execute", action="store_true")
     server = sub.add_parser("serve")
     server.add_argument("--host", default="127.0.0.1")
     server.add_argument("--port", type=int, default=8080)
@@ -153,14 +157,45 @@ def main(argv: list[str] | None = None) -> int:
             payload["patch"],
             payload.get("diagnostics"),
         )
-        _write_json(
-            {
-                "status": "ready_for_independent_review",
-                "skill": skill_identity(skill, policies),
-                "review_bundle": bundle.as_dict(),
-            },
-            args.output,
-        )
+        result: dict[str, object] = {
+            "status": "ready_for_independent_review",
+            "skill": skill_identity(skill, policies),
+            "review_bundle": bundle.as_dict(),
+        }
+        if args.execute:
+            evidence = payload["evidence"]
+            author_skill = evidence.get("skill")
+            if not isinstance(author_skill, dict):
+                raise ValueError("generation evidence is missing author skill identity")
+            author_model = evidence.get("model")
+            if not isinstance(author_model, str) or not author_model:
+                raise ValueError("generation evidence is missing author model identity")
+            router = ModelRouter.from_environment()
+            route = router.select_reviewer(
+                AuthorRouteIdentity(
+                    model=author_model,
+                    tier=parse_model_tier(author_skill.get("model_tier")),
+                    provider=evidence.get("model_provider")
+                    if isinstance(evidence.get("model_provider"), str)
+                    else None,
+                    endpoint=evidence.get("model_endpoint") if isinstance(evidence.get("model_endpoint"), str) else None,
+                )
+            )
+            review = run_independent_review(
+                bundle,
+                model=route.build_model(),
+                route=route,
+                budget=Budget(
+                    max_model_calls=skill.budget.max_model_calls,
+                    max_input_tokens=skill.budget.max_input_tokens,
+                    max_output_tokens=skill.budget.max_output_tokens,
+                    max_cost_usd=skill.budget.max_cost_usd,
+                    max_wall_seconds=skill.budget.max_wall_seconds,
+                ),
+            )
+            result["status"] = "reviewed"
+            result["review"] = review.as_dict()
+        _write_json(result, args.output)
         return 0
     if args.command in {"spec", "refactor-sdk", "verify", "publish", "iterate-pr", "resume"}:
         policies, skills = _skill_contracts()
@@ -229,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
             sdk_root=args.sdk_root,
             docs_root=args.docs_root,
             output_dir=args.output_dir,
-            model=OpenAICompatibleModel.from_environment(),
+            model=model_from_environment(),
         )
         print(json.dumps(record.as_dict(), sort_keys=True))
         return 0
@@ -243,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
             sdk_revision=args.sdk_revision,
             sdk_pr_url=args.sdk_pr_url,
             output_dir=args.output_dir,
-            model=OpenAICompatibleModel.from_environment(),
+            model=model_from_environment(),
         )
         print(json.dumps(record.as_dict(), sort_keys=True))
         return 0

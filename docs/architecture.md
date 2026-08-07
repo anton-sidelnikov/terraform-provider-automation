@@ -54,6 +54,8 @@ Every accepted phase serializes a canonical JSON payload, records its SHA-256 di
 
 The review boundary reconstructs and verifies the complete artifact chain, then creates a separate review bundle containing only the frozen `EXPLORE` through `VERIFY` artifacts, the digest-matched patch, and allow-listed deterministic diagnostics. Raw prompts, messages, conversation history, and hidden author reasoning are not copied into reviewer context.
 
+Reviewer execution uses a separately configured model route. Trusted routing code compares capability tiers before the call and requires reviewer strength to be equal to or greater than the author strength recorded by the generation skill. The exact same endpoint/model identity cannot review its own output.
+
 ## Retrieval
 
 The retrieval broker indexes only:
@@ -69,7 +71,7 @@ Vector indexes are caches, never sources of truth. They are rebuilt for a specif
 
 ## Model routing
 
-Use an internal OpenAI-compatible gateway so approved frontier, open-weight, and coding models can be evaluated behind one contract. Route low-risk extraction to the smallest model that meets the quality gate; use a stronger coding model for patch proposals. Model identity, endpoint, parameters, prompt version, token counts, latency, and price-table version are recorded.
+Use GitHub Copilot SDK and its CLI-authenticated runtime as the default model backend. The provider-neutral model contract keeps an OpenAI-compatible BYOK adapter available for approved deployments that require it. Route low-risk extraction to the smallest model that meets the quality gate; use a stronger coding model for patch proposals. Provider, model identity, runtime endpoint, parameters, prompt version, token counts, latency, and available cost metadata are recorded.
 
 Temperature is zero for extraction/review and low for code generation. A fallback model is allowed once for a transient outage. It is not allowed when policy rejected the primary output, since switching models does not remove the unsafe requirement.
 
@@ -84,7 +86,7 @@ Input is a signed plan, read-only snapshots, a file/path allow-list, evidence ch
 5. invokes only fixed test commands selected by trusted code;
 6. discards the worktree after packaging the diff and evidence.
 
-Publishing runs in a separate job with no model access and a GitHub App token restricted to the target repository. It verifies the artifact digest before opening a draft PR.
+Publishing runs as an explicit local stage after model sessions are closed. It loads a narrowly scoped GitHub identity only after verifying the artifact digest, then opens or updates the draft PR.
 
 ## Storage and audit
 
@@ -92,4 +94,4 @@ Store run state in PostgreSQL with optimistic transitions and idempotency keys. 
 
 ## Deployment
 
-Run the API/control plane, patch workers, retrieval workers, and telemetry collector as separate Kubernetes workloads. Use a queue with visibility timeouts and a dead-letter queue. Apply default-deny network policy; only the retrieval broker reaches allow-listed GitHub endpoints, only the model broker reaches approved model endpoints, and only the publisher reaches GitHub write APIs. Use workload identity and a secrets manager, not long-lived environment credentials.
+Run generation, retrieval, review, repair, and publishing through the local CLI. The only Kubernetes workload is the optional stateless planning/health/metrics API for remote clients and online evaluation. It receives no model or publishing credentials and uses default-deny egress. Durable local execution may later use external PostgreSQL and object storage, but those services are not part of the planning API deployment.

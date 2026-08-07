@@ -4,6 +4,7 @@ metadata:
   name: otc-provider-agent
   labels:
     app.kubernetes.io/name: otc-provider-agent
+    app.kubernetes.io/component: planning-api
 spec:
   replicas: 2
   revisionHistoryLimit: 3
@@ -22,10 +23,10 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: api
+        - name: planning-api
           image: ghcr.io/anton-sidelnikov/terraform-provider-automation:v0.1.0
           imagePullPolicy: IfNotPresent
-          args: ["serve", "--host", "0.0.0.0", "--port", "8080"]
+          args: ["--host", "0.0.0.0", "--port", "8080"]
           envFrom:
             - configMapRef:
                 name: otc-provider-agent
@@ -56,4 +57,3 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
-

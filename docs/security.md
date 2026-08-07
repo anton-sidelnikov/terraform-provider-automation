@@ -2,30 +2,30 @@
 
 ## Trust boundaries
 
-Untrusted inputs include issue/PR text, API documentation, repository source, diffs, test logs, model responses, tool output, URLs, filenames, and retrieved chunks. Trusted inputs are versioned policy, reviewed service mappings, fixed tool definitions, protected-environment approvals, and identities issued by the deployment platform.
+Untrusted inputs include issue/PR text, API documentation, repository source, diffs, test logs, model responses, tool output, URLs, filenames, and retrieved chunks. Trusted inputs are versioned policy, reviewed service mappings, fixed tool definitions, explicit local approvals, and identities issued by the deployment platform.
 
-| Threat | Required control | Failure behavior |
-|---|---|---|
-| Prompt injection in docs or issues | Treat content as quoted data; isolate policy; scan signals; no model-selected tools | Quarantine, warn, require security review |
-| Command/path injection | Fixed argv tools; path allow-list; no shell interpolation; disposable worktree | Reject output before write |
-| SSRF | HTTPS and exact-host allow-list; resolve/check all addresses; block redirects to other hosts and private ranges | Block retrieval |
-| Secret exfiltration | No secrets in model jobs; egress allow-list; redaction; canary secret tests | Revoke token and stop run |
-| Supply-chain compromise | Pin actions by SHA, Python version, source commits, model/prompt versions; verify artifact hashes | Block promotion |
-| Poisoned retrieval/index | Commit-pinned sources, content hashes, provenance metadata, api-ref-only rule | Rebuild or block |
-| Excessive agency | Separate planner, executor, and publisher identities; human environment approvals | No PR/merge |
-| Resource/cost exhaustion | Input/output limits, per-run token/cost/time budgets, concurrency caps | Checkpoint then stop |
-| Cross-tenant data leak | Namespace indexes/runs, tenant-scoped encryption and identity | Fail closed |
-| Malicious generated test | Tests execute unprivileged, network-disabled, read-only credentials, cgroup/seccomp limits | Destroy sandbox |
+| Threat                             | Required control                                                                                                | Failure behavior                          |
+|------------------------------------|-----------------------------------------------------------------------------------------------------------------|-------------------------------------------|
+| Prompt injection in docs or issues | Treat content as quoted data; isolate policy; scan signals; no model-selected tools                             | Quarantine, warn, require security review |
+| Command/path injection             | Fixed argv tools; path allow-list; no shell interpolation; disposable worktree                                  | Reject output before write                |
+| SSRF                               | HTTPS and exact-host allow-list; resolve/check all addresses; block redirects to other hosts and private ranges | Block retrieval                           |
+| Secret exfiltration                | Separate model and publisher credentials; egress allow-list; redaction; canary secret tests                     | Revoke token and stop run                 |
+| Supply-chain compromise            | Pin actions by SHA, Python version, source commits, model/prompt versions; verify artifact hashes               | Block promotion                           |
+| Poisoned retrieval/index           | Commit-pinned sources, content hashes, provenance metadata, api-ref-only rule                                   | Rebuild or block                          |
+| Excessive agency                   | Separate planner, executor, and publisher identities; explicit local approvals                                  | No PR/merge                               |
+| Resource/cost exhaustion           | Input/output limits, per-run token/cost/time budgets, concurrency caps                                          | Checkpoint then stop                      |
+| Cross-tenant data leak             | Namespace indexes/runs, tenant-scoped encryption and identity                                                   | Fail closed                               |
+| Malicious generated test           | Tests execute unprivileged, network-disabled, read-only credentials, cgroup/seccomp limits                      | Destroy sandbox                           |
 
 ## GitHub Actions rules
 
 - Fork PR workflows are credential-free and use `persist-credentials: false`.
 - Never use `pull_request_target` to execute contributor-controlled code.
 - Pin every third-party action to a full commit SHA; Dependabot proposes updates.
-- Put online credentials in the `online-evaluation` environment and publishing credentials in separate `sdk-publish`/`provider-publish` environments.
-- Use a GitHub App installation token scoped to `contents:write` and `pull_requests:write` only for the publisher job. The model worker never receives it.
+- The online-evaluation environment stores only the planning API URL. GitHub Actions do not receive model or publishing credentials.
+- For local publishing, use a GitHub CLI identity or App installation token scoped to the target repository. Keep it unavailable during model execution and load it only for the explicit publish step.
 - Apply branch protection: required CI/evaluation checks, CODEOWNERS approval, signed commits where supported, no force pushes, and no workflow-file changes from the patch worker.
-- Treat Actions artifacts as untrusted until the downstream job verifies the recorded SHA-256 digest and originating run/revision.
+- Treat local run artifacts as untrusted until the publisher verifies the recorded SHA-256 digest and source revisions.
 
 ## Model safety policy
 
@@ -36,4 +36,3 @@ High-risk changes always need specialist review: authentication/signing, endpoin
 ## Incident response
 
 On suspected exfiltration: stop workers, revoke the workload/GitHub/model credentials, preserve redacted audit events, identify affected run and evidence hashes, invalidate caches, notify repository owners, and rotate any potentially exposed credentials. Do not delete evidence until the security owner releases it.
-
