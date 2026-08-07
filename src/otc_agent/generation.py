@@ -233,7 +233,7 @@ def _generate(
             "policies": list(policies),
         },
     )
-    budget = Budget(max_model_calls=2, max_input_tokens=150_000, max_output_tokens=40_000, max_cost_usd=15)
+    budget = Budget(max_model_calls=3, max_input_tokens=250_000, max_output_tokens=80_000, max_cost_usd=30)
     result = model.generate_json(
         system=_SYSTEM_PROMPT,
         user=_user_prompt(plan, instructions, evidence, code_context),
