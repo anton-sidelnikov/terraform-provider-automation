@@ -37,6 +37,24 @@ Only an independent `request_changes` decision can start repair. Each repair is 
 
 The review output includes an append-only, hash-linked journal. It stores the complete initial proposal, deterministic diagnostics, review decisions and findings, every replacement repair proposal, and every repair validation/rereview result. Canonical payload and chain digests make removal, reordering, or modification detectable.
 
+For confirmed legacy or mixed SDK layouts, `otc-agent refactor-sdk` first creates a deterministic migration plan. The plan maps each remaining legacy operation to its operation-named target file, groups moves by package, and blocks stale analyzer input, duplicate exported operations, or existing target-file collisions before any edit is proposed.
+
+The plan also freezes a Go-parser-derived snapshot of every exported function, method, type, constant, and variable. A candidate checkout may add symbols, but any removal or signature change blocks migration unless its exact package/kind/name identifier appears in the approved specification's `approved_api_changes` list.
+
+With explicit `"apply": true`, the refactoring skill uses Go ASTs to move each operation function together with operation-prefixed options, results, builder interfaces, receiver methods, and unexported helpers into the matching operation file. Unmatched declarations remain in the legacy source, imports are recalculated per file, and all writes roll back if the exported API compatibility check fails.
+
+Declaration ownership is dependency-aware. The executor follows identifier references transitively from every operation; a type, constant, variable, or helper reached by two or more operations remains in the common source file, while declarations exclusively reached by one operation move with it.
+
+After splitting, the executor reparses every legacy `request.go`, `requests.go`, `urls.go`, and `results.go` file. It deletes only files with no remaining non-import declarations; shared or otherwise non-empty legacy files stay in place. Deletions participate in the same compatibility rollback as file writes.
+
+An independent Go AST gate then enumerates recognized exported operation functions across the service. Every operation must be declared exactly once and its source path must end in `<Operation>.go`; duplicate operations or filename mismatches block candidate acceptance and roll back an applied migration.
+
+The final refactoring gate runs `go test ./openstack/<service>/...` and inventories test functions with Go ASTs. Each migrated operation requires request, response, error, zero-value, and fixture evidence; `List*` operations additionally require pagination evidence unless the approved specification supplies an explicit `behavior_checks` list. Missing evidence or a failed Go test blocks and rolls back migration.
+
+A separate semantic snapshot hashes normalized Go AST declarations, including function and method bodies. Refactoring must therefore be a pure declaration relocation by default: added, removed, or changed declarations block the candidate even when exported signatures remain compatible. Deliberate changes require exact declaration identifiers in `approved_behavior_changes`.
+
+Migration planning emits one deterministic `migration_id`, branch suffix, and pull-request title per exported operation. A multi-operation plan cannot be applied without choosing one `migration_id`; the resulting patch moves only that route and validates only that route's file/behavior requirements, leaving remaining legacy operations for later append-only pull requests.
+
 The generator queries only revision-pinned `api-ref/**/*.rst`, requires citations from retrieved chunks, accepts only a unified diff under `openstack/<sdk>/**`, applies it in a disposable checkout, runs fixed `gofmt`, `go test`, and `go vet` commands, and records a SHA-256 evidence manifest. The local publisher independently verifies the digest/path scope, pushes `agent/<kind>-<service>-<run-id>`, and opens a draft SDK PR.
 
 ### 4. SDK approval continuation
