@@ -39,6 +39,7 @@ jobs:
       - name: Evaluate the deployed service
         env:
           OTC_AGENT_EVAL_URL: ${{ vars.OTC_AGENT_EVAL_URL }}
+          OTC_AGENT_WORKFLOW_EVAL_URL: ${{ vars.OTC_AGENT_WORKFLOW_EVAL_URL }}
         run: make online-eval
       - name: Upload evaluation evidence
         if: always()

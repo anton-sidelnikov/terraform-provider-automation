@@ -36,6 +36,8 @@ uv run otc-agent migrate-state --postgres-dsn postgresql://user:password@host/ot
 
 Both entry points automatically load the nearest `.env` from the current directory or its parents without overriding variables already present in the process environment. Use `--env-file <path>` to select another regular file; `.env.example` lists supported settings. The loader uses only the Python standard library so the planning API image remains dependency-free. Durable state prefers PostgreSQL and otherwise uses local MySQL. `migrate-state` copies all MySQL durable-state tables to PostgreSQL transactionally and can read both DSNs from the environment.
 
+Model-backed skills use their declared fast or strong route from `OTC_FAST_MODEL_*` and `OTC_STRONG_MODEL_*`. `OTC_MODEL_*` remains the compatibility fallback, while independent review always uses the separate `OTC_REVIEW_MODEL_*` route.
+
 `otc-agent` is the local generation CLI. `otc-agent-api` is the dependency-minimal remote planning entrypoint used by the container. The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometheus-format `GET /metrics`.
 
 ## Distribution
@@ -76,7 +78,7 @@ Governed skills are declared in [`config/skills.json`](config/skills.json). Run 
 
 The CLI exposes `analyze`, `spec`, `refactor-sdk`, `review`, `verify`, `publish`, `iterate-pr`, and `resume`. `analyze`, refactoring planning/application, review bundling, publication governance, and exact `/agent iterate` command recognition are executable; later-stage commands validate their versioned input contract and return exit code `4` until their tracked implementation milestone is complete.
 
-Generation evidence schema version 3 records the selected skill and policy versions plus a hash-linked `EXPLORE -> SPECIFY -> PLAN -> IMPLEMENT -> VERIFY -> REVIEW -> PUBLISH` artifact chain. PR audit metadata carries the final artifact identity.
+Generation evidence schema version 5 records the selected skill and policy versions, revision-pinned SDK guidance provenance, evaluator-optimizer scores and findings, and a hash-linked `EXPLORE -> SPECIFY -> PLAN -> IMPLEMENT -> VERIFY -> REVIEW -> PUBLISH` artifact chain. PR audit metadata carries the final artifact identity.
 
 ## Repository layout
 

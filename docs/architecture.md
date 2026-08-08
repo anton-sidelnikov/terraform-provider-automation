@@ -73,6 +73,8 @@ Vector indexes are caches, never sources of truth. They are rebuilt for a specif
 
 Use GitHub Copilot SDK and its CLI-authenticated runtime as the default model backend. The provider-neutral model contract keeps an OpenAI-compatible BYOK adapter available for approved deployments that require it. Route low-risk extraction to the smallest model that meets the quality gate; use a stronger coding model for patch proposals. Provider, model identity, runtime endpoint, parameters, prompt version, token counts, latency, and available cost metadata are recorded.
 
+Model-backed skills resolve their declared `model_tier` through trusted `OTC_FAST_MODEL_*` or `OTC_STRONG_MODEL_*` configuration. A fast skill may fall back to the configured strong route, but a strong skill never falls back to fast. Legacy `OTC_MODEL_*` remains the compatibility fallback when a tier-specific route is absent. Independent review continues to use `OTC_REVIEW_MODEL_*` and must be equal to or stronger than, and distinct from, the recorded author route.
+
 Temperature is zero for extraction/review and low for code generation. A fallback model is allowed once for a transient outage. It is not allowed when policy rejected the primary output, since switching models does not remove the unsafe requirement.
 
 ## Patch-worker contract
