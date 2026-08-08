@@ -107,15 +107,15 @@
     },
     {
       "id": "iterate-pr",
-      "version": 1,
+      "version": 11,
       "description": "Resolve authorized review feedback on the existing branch and pull request.",
       "stage": "review",
       "model_tier": "strong",
       "policies": [{"id": "pull-requests", "minimum_version": 1}, {"id": "review", "minimum_version": 1}, {"id": "testing", "minimum_version": 1}, {"id": "security", "minimum_version": 1}],
-      "input_schema": {"type": "object", "properties": {"run_id": {"type": "string"}, "pull_request": {"type": "integer"}, "comments": {"type": "array"}}, "required": ["run_id", "pull_request", "comments"]},
-      "output_schema": {"type": "object", "properties": {"patch": {"type": "string"}, "resolved_comments": {"type": "array"}, "replies": {"type": "array"}}, "required": ["patch", "resolved_comments", "replies"]},
-      "tools": ["state.read", "github.comments.read", "repository.read", "patch.propose"],
-      "budget": {"max_model_calls": 2, "max_input_tokens": 100000, "max_output_tokens": 24000, "max_cost_usd": 10.0, "max_wall_seconds": 600},
+      "input_schema": {"type": "object", "properties": {"run_id": {"type": "string"}, "artifact": {"type": "string"}, "state_path": {"type": "string"}, "repository": {"type": "string"}, "pull_request": {"type": "integer"}, "head_branch": {"type": "string"}, "pull_request_body": {"type": "string"}, "comments": {"type": "array"}, "stage": {"type": "string"}, "service": {"type": "string"}, "current_patch": {"type": "string"}, "diagnostics": {"type": "array"}, "worktree": {"type": "string"}, "previous_head_sha": {"type": "string"}, "commit_message": {"type": "string"}}, "required": ["run_id", "artifact", "state_path", "repository", "pull_request", "head_branch", "pull_request_body", "comments", "stage", "service", "current_patch"]},
+      "output_schema": {"type": "object", "properties": {"status": {"type": "string"}, "skill": {"type": "object"}, "run_id": {"type": "string"}, "pull_request": {"type": "integer"}, "command": {"type": "object"}, "metadata": {"type": "object"}, "artifacts": {"type": "object"}, "feedback": {"type": "object"}, "classifications": {"type": "object"}, "repair": {"type": "object"}, "repair_commit": {"type": "object"}, "replies": {"type": "array"}, "state": {"type": "object"}}, "required": ["status", "skill", "run_id", "pull_request", "command", "state"]},
+      "tools": ["state.read", "github.comments.read", "repository.read", "patch.propose", "git.commit", "git.push", "github.comments.write"],
+      "budget": {"max_model_calls": 3, "max_input_tokens": 100000, "max_output_tokens": 24000, "max_cost_usd": 10.0, "max_wall_seconds": 600},
       "retry": {"max_attempts": 2, "retryable": ["timeout", "rate_limited", "server_error", "invalid_schema"]}
     },
     {

@@ -41,7 +41,7 @@ class SkillTests(unittest.TestCase):
                 "review": 1,
                 "verify": 1,
                 "publish": 7,
-                "iterate-pr": 1,
+                "iterate-pr": 11,
                 "resume": 1,
             },
         )

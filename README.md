@@ -70,7 +70,7 @@ The local `otc-agent` CLI owns intake through draft PR creation and subsequent P
 
 Governed skills are declared in [`config/skills.json`](config/skills.json). Run `otc-agent policy-check` and `otc-agent skill-check` to validate policy and skill contracts.
 
-The CLI exposes `analyze`, `spec`, `refactor-sdk`, `review`, `verify`, `publish`, `iterate-pr`, and `resume`. `analyze`, refactoring planning/application, review bundling, and the read-only publish issue preflight and governed SDK PR-body rendering are executable; later-stage commands validate their versioned input contract and return exit code `4` until their tracked implementation milestone is complete.
+The CLI exposes `analyze`, `spec`, `refactor-sdk`, `review`, `verify`, `publish`, `iterate-pr`, and `resume`. `analyze`, refactoring planning/application, review bundling, publication governance, and exact `/agent iterate` command recognition are executable; later-stage commands validate their versioned input contract and return exit code `4` until their tracked implementation milestone is complete.
 
 Generation evidence schema version 3 records the selected skill and policy versions plus a hash-linked `EXPLORE -> SPECIFY -> PLAN -> IMPLEMENT -> VERIFY -> REVIEW -> PUBLISH` artifact chain. PR audit metadata carries the final artifact identity.
 

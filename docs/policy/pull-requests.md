@@ -23,6 +23,8 @@ The body includes documentation links and canonical machine-readable metadata bo
 
 Feedback updates the existing branch and pull request. Automation never closes and recreates a pull request to avoid review.
 
+Iteration commands are accepted only from repository owners, members, or collaborators on an `agent/*` pull request carrying valid canonical `otc-agent` metadata for the same repository and append-only publication mode.
+
 ## 5. Review checklist
 
 - [ ] Issue, documentation, and evidence are linked.

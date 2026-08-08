@@ -372,6 +372,26 @@ def _render_metadata(body: str, metadata: dict[str, object]) -> str:
     return f"{body}\n\n{block}"
 
 
+def parse_publication_metadata(body: str) -> dict[str, object]:
+    start = body.find(_METADATA_BLOCK_START)
+    end = body.find(_METADATA_BLOCK_END)
+    if start < 0 or end < 0 or body.find(_METADATA_BLOCK_START, start + 1) >= 0:
+        raise PublicationError("pull request is missing unique agent automation metadata")
+    content_start = start + len(_METADATA_BLOCK_START)
+    if end <= content_start or body.find(_METADATA_BLOCK_END, end + 1) >= 0:
+        raise PublicationError("pull request contains malformed agent automation metadata")
+    content = body[content_start:end].strip()
+    try:
+        value = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise PublicationError("pull request contains invalid agent automation metadata") from exc
+    if not isinstance(value, dict):
+        raise PublicationError("pull request automation metadata must be an object")
+    if json.dumps(value, sort_keys=True, separators=(",", ":")) != content:
+        raise PublicationError("pull request automation metadata is not canonical")
+    return value
+
+
 def _required_int(value: dict[str, object], field: str) -> int:
     item = value.get(field)
     if not isinstance(item, int) or isinstance(item, bool) or item < 1:
