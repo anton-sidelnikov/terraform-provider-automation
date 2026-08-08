@@ -5,8 +5,11 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from otc_agent.cli import _parser, main
+from otc_agent.resume import ResumeValidation
+from otc_agent.state import ResumeCheckpoint
 from otc_agent.workflow import STAGE_ORDER, ArtifactChain, WorkflowStage
 
 
@@ -18,6 +21,10 @@ class SkillCLITests(unittest.TestCase):
         for command in ("spec", "refactor-sdk", "review", "verify", "publish", "iterate-pr", "resume"):
             parsed = parser.parse_args([command, "--input", "input.json"])
             self.assertEqual(parsed.command, command)
+        self.assertEqual(
+            parser.parse_args(["migrate-state", "--postgres-dsn", "postgresql://db/agent"]).command,
+            "migrate-state",
+        )
 
     def test_analyze_executes_existing_read_only_skill(self) -> None:
         output = io.StringIO()
@@ -40,20 +47,61 @@ class SkillCLITests(unittest.TestCase):
         self.assertEqual(value["classification"]["kind"], "refactoring")
         self.assertEqual(value["layout"]["kind"], "legacy")
 
-    def test_future_skill_command_validates_contract_and_fails_explicitly(self) -> None:
+    def test_resume_returns_next_stage_from_verified_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             input_path = Path(directory) / "resume.json"
-            input_path.write_text(json.dumps({"run_id": "run-123"}), encoding="utf-8")
+            input_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "run-123",
+                        "repository_root": "/tmp/repository",
+                        "artifact": "/tmp/artifact.json",
+                    }
+                ),
+                encoding="utf-8",
+            )
             output = io.StringIO()
+            store = Mock()
+            store.load_resume_checkpoint.return_value = ResumeCheckpoint(
+                run_id="run-123",
+                run_status="running",
+                run_version=4,
+                source_sha="a" * 40,
+                branch_name="agent/change",
+                branch_sha="b" * 40,
+                checkpoint_stage="verify",
+                checkpoint_attempt=1,
+                artifact_sha256="c" * 64,
+                previous_artifact_sha256="d" * 64,
+                checkpoint_source_sha="a" * 40,
+                checkpoint_branch_sha="b" * 40,
+                payload={"passed": True},
+            )
 
-            with redirect_stdout(output):
-                result = main(["resume", "--input", str(input_path)])
+            validation = ResumeValidation(
+                repository_root="/tmp/repository",
+                source_sha="a" * 40,
+                branch_sha="b" * 40,
+                artifact_path="/tmp/artifact.json",
+                artifact_sha256="c" * 64,
+                documentation_root=None,
+                documentation_revision=None,
+            )
+            with patch("otc_agent.cli.connect_state_store", return_value=store):
+                with patch(
+                    "otc_agent.cli.revalidate_resume_checkpoint",
+                    return_value=validation,
+                ):
+                    with redirect_stdout(output):
+                        result = main(["resume", "--input", str(input_path)])
 
         value = json.loads(output.getvalue())
-        self.assertEqual(result, 4)
-        self.assertEqual(value["status"], "not_implemented")
+        self.assertEqual(result, 0)
+        self.assertEqual(value["status"], "ready_to_resume")
+        self.assertEqual(value["stage"], "review")
         self.assertEqual(value["skill"]["id"], "resume")
-        self.assertEqual(value["skill"]["version"], 1)
+        self.assertEqual(value["skill"]["version"], 3)
+        store.close.assert_called_once()
 
     def test_review_command_emits_context_isolated_bundle(self) -> None:
         patch = "diff --git a/a.go b/a.go\n"

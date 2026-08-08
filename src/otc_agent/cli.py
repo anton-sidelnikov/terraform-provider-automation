@@ -11,6 +11,7 @@ from .budget import Budget
 from .catalog import Catalog, default_catalog_path
 from .domain import ChangeKind, ChangeRequest
 from .evals import run_evaluation
+from .environment import load_environment
 from .generation import generate_provider_candidate, generate_sdk_candidate, provider_publish_policy
 from .model import model_from_environment
 from .orchestrator import Planner
@@ -35,6 +36,7 @@ from .publishing import (
     verify_publish_preflight,
 )
 from .review import build_review_bundle, build_review_history, run_independent_review
+from .resume import revalidate_resume_checkpoint
 from .routing import AuthorRouteIdentity, ModelRouter, parse_model_tier
 from .sdk_layout import analyze_sdk_layout
 from .sdk_refactor import (
@@ -57,11 +59,14 @@ from .skill import (
     skill_identity,
     validate_skill_input,
 )
+from .state import connect_state_store, migrate_mysql_to_postgres
 from .telemetry import configure_logging
+from .workflow import STAGE_ORDER, WorkflowStage
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="otc-agent")
+    parser.add_argument("--env-file", type=Path)
     parser.add_argument("--catalog", type=Path, default=default_catalog_path())
     sub = parser.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan")
@@ -82,6 +87,9 @@ def _parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--output", type=Path, required=True)
     evaluate.add_argument("--baseline", type=Path)
     sub.add_parser("catalog-check")
+    migrate_state = sub.add_parser("migrate-state")
+    migrate_state.add_argument("--mysql-dsn")
+    migrate_state.add_argument("--postgres-dsn")
     policy_check = sub.add_parser("policy-check")
     policy_check.add_argument("--root", type=Path, default=default_policy_root())
     skill_check = sub.add_parser("skill-check")
@@ -125,11 +133,22 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    environment_parser = argparse.ArgumentParser(add_help=False)
+    environment_parser.add_argument("--env-file", type=Path)
+    environment_args, _ = environment_parser.parse_known_args(argv)
+    load_environment(environment_args.env_file)
     configure_logging()
     args = _parser().parse_args(argv)
     catalog = Catalog.load(args.catalog)
     if args.command == "catalog-check":
         print(json.dumps({"status": "ok", "mappings": len(catalog.mappings), "api_ref_repositories": len(catalog.eligible_docs_repositories)}))
+        return 0
+    if args.command == "migrate-state":
+        result = migrate_mysql_to_postgres(
+            mysql_dsn=args.mysql_dsn,
+            postgres_dsn=args.postgres_dsn or os.environ.get("OTC_POSTGRES_DSN"),
+        )
+        print(json.dumps({"status": "migrated", "rows": result}, sort_keys=True))
         return 0
     if args.command == "policy-check":
         policies = load_policy_registry(args.root)
@@ -499,6 +518,7 @@ def main(argv: list[str] | None = None) -> int:
                     commit_message=payload["commit_message"],
                 )
                 replies = reply_to_addressed_feedback(
+                    run_id=payload["run_id"],
                     repository=payload["repository"],
                     pull_request=payload["pull_request"],
                     feedback=feedback,
@@ -539,7 +559,35 @@ def main(argv: list[str] | None = None) -> int:
         }
         _write_json(result, args.output)
         return 0
-    if args.command in {"spec", "verify", "resume"}:
+    if args.command == "resume":
+        policies, skills = _skill_contracts()
+        skill = find_skill(skills, "resume")
+        payload = json.loads(args.input.read_text(encoding="utf-8"))
+        validate_skill_input(skill, payload)
+        store = connect_state_store()
+        try:
+            checkpoint = store.load_resume_checkpoint(payload["run_id"])
+        finally:
+            store.close()
+        validation = revalidate_resume_checkpoint(
+            checkpoint=checkpoint,
+            repository_root=Path(payload["repository_root"]),
+            artifact_path=Path(payload["artifact"]),
+            documentation_root=Path(payload["documentation_root"])
+            if isinstance(payload.get("documentation_root"), str)
+            else None,
+        )
+        next_stage = _next_resume_stage(checkpoint.checkpoint_stage)
+        result = {
+            "stage": next_stage,
+            "status": "complete" if next_stage is None else "ready_to_resume",
+            "checkpoint": checkpoint.as_dict(),
+            "validation": validation.as_dict(),
+            "skill": skill_identity(skill, policies),
+        }
+        _write_json(result, args.output)
+        return 0
+    if args.command in {"spec", "verify"}:
         policies, skills = _skill_contracts()
         skill = find_skill(skills, args.command)
         payload = json.loads(args.input.read_text(encoding="utf-8"))
@@ -649,6 +697,15 @@ def _write_json(value: dict[str, object], output: Path | None) -> None:
         output.write_text(content, encoding="utf-8")
     else:
         sys.stdout.write(content)
+
+
+def _next_resume_stage(stage: str) -> str | None:
+    try:
+        current = WorkflowStage(stage)
+    except ValueError as exc:
+        raise ValueError(f"durable checkpoint contains unsupported stage {stage!r}") from exc
+    index = STAGE_ORDER.index(current)
+    return STAGE_ORDER[index + 1].value if index + 1 < len(STAGE_ORDER) else None
 
 
 if __name__ == "__main__":

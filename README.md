@@ -29,9 +29,12 @@ uv run otc-agent analyze-sdk-layout \
 
 uv run otc-agent serve --host 127.0.0.1 --port 8080
 uv run otc-agent-api --host 127.0.0.1 --port 8080
+uv run otc-agent migrate-state --postgres-dsn postgresql://user:password@host/otc_agent
 ```
 
 `make lint` runs Ruff from the locked environment; `make verify` runs compilation, tests, policy/skill checks, and offline evaluation. `make check` runs both.
+
+Both entry points automatically load `.env` from the current working directory without overriding variables already present in the process environment. Use `--env-file <path>` to select another regular file; `.env.example` lists supported settings. Durable state prefers PostgreSQL and otherwise uses local MySQL. `migrate-state` copies all MySQL durable-state tables to PostgreSQL transactionally and can read both DSNs from the environment.
 
 `otc-agent` is the local generation CLI. `otc-agent-api` is the dependency-minimal remote planning entrypoint used by the container. The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometheus-format `GET /metrics`.
 
@@ -67,6 +70,7 @@ The local `otc-agent` CLI owns intake through draft PR creation and subsequent P
 - [Position requirements traceability](docs/requirements-traceability.md)
 - [Implementation roadmap and task tracker](tasks.md)
 - [Versioned policy registry](docs/policy/README.md)
+- [Temporal orchestration evaluation](docs/decisions/temporal.md)
 
 Governed skills are declared in [`config/skills.json`](config/skills.json). Run `otc-agent policy-check` and `otc-agent skill-check` to validate policy and skill contracts.
 

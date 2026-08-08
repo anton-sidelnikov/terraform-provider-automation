@@ -98,6 +98,12 @@ Every completed iteration is atomically recorded in a bounded local JSON journal
 
 The iteration executor applies a final remote-write allowlist before every Git or GitHub command. The only permitted remote Git write is `git push origin HEAD:refs/heads/agent/<existing-branch>` without force options. The only permitted GitHub writes are new PR conversation comments and replies to review comments. PR creation, closure, reopening, replacement, metadata mutation, deletion, and all other remote writes are rejected.
 
+Retries reconcile uncertain writes before issuing another remote mutation. If the local branch already contains the approved append-only repair commit, the executor verifies its parent, cumulative patch, ancestry, and remote branch SHA; it pushes only when the remote is still behind. Feedback replies carry a deterministic hidden write marker, and GitHub is searched for that marker before posting. A response lost after a successful push or comment therefore converges on the existing remote object instead of creating a duplicate.
+
+`otc-agent resume` reads the durable run and newest stage attempt whose status is `passed`, `approved`, or `completed`. It returns the exact next stage in the frozen workflow and the stored artifact/source/branch checkpoint without replaying any completed stage. A published checkpoint returns `complete`; missing runs, missing verified stages, malformed payloads, or unsupported stage names fail closed.
+
+Before returning a resumable stage, the command revalidates the captured source commit, exact `agent/*` branch SHA, source ancestry, and the frozen checkpoint artifact's payload/envelope hashes. If the checkpoint records a documentation revision, the supplied documentation checkout must still be at that exact commit. Changed branches, missing commits, substituted artifacts, or documentation drift block resumption.
+
 Required checks include schema types and validators, create/read/update/delete semantics, eventual consistency and timeout handling, not-found behavior, import, ForceNew/state migration, sensitive fields, SDK error propagation, unit tests where possible, acceptance tests in a disposable OTC project, documentation example and argument/attribute parity, `terraform fmt`, repository lint/vet/test, and a valid Reno note.
 
 Open a separate draft provider PR that links the merged SDK PR and pins the SDK revision. Do not bundle unrelated formatting or dependency updates.

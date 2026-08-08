@@ -42,7 +42,7 @@ class SkillTests(unittest.TestCase):
                 "verify": 1,
                 "publish": 7,
                 "iterate-pr": 11,
-                "resume": 1,
+                "resume": 3,
             },
         )
         self.assertTrue(all(skill.policies for skill in skills))
