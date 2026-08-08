@@ -232,14 +232,17 @@ class OpenAICompatibleModel:
         )
 
 
-def model_from_environment(*, role: str = "author") -> StructuredModel:
-    prefix = "OTC_REVIEW_MODEL" if role == "reviewer" else "OTC_MODEL"
+def model_from_environment(*, role: str = "author", tier: str | None = None) -> StructuredModel:
+    if role == "reviewer":
+        prefix = "OTC_REVIEW_MODEL"
+    elif tier and os.environ.get(f"OTC_{tier.upper()}_MODEL_NAME"):
+        prefix = f"OTC_{tier.upper()}_MODEL"
+    else:
+        prefix = "OTC_MODEL"
     provider = os.environ.get(f"{prefix}_PROVIDER", "copilot").strip().lower()
     if provider == "copilot":
         return CopilotSDKModel.from_environment(prefix=prefix)
     if provider == "openai-compatible":
-        if role == "author":
-            return OpenAICompatibleModel.from_environment()
         return OpenAICompatibleModel(
             os.environ.get(f"{prefix}_BASE_URL", ""),
             os.environ.get(f"{prefix}_API_KEY", ""),

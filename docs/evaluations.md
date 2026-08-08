@@ -12,13 +12,23 @@ Runs on every pull request with no model, network, cloud credentials, or reposit
 - stage ordering, especially the SDK approval barrier;
 - budgets, retry classification, redaction, URL/path restrictions, and failure-state transitions;
 - classification semantics, patch path confinement, citation provenance, documentation sections, and release-note shape;
+- direct legacy-layout evidence, adopted policy-contract compliance, bounded review repair, and PR-command replay idempotency;
 - replayed model/retrieval/tool timeouts and malformed outputs.
 
-The current gate is `score >= 0.90`; security and SDK-ordering cases are critical and should become non-compensating checks as the dataset grows.
+The current gate is `score >= 0.90`. Cases marked `critical` are non-compensating: any failure blocks the report even when the aggregate score remains above the threshold. Security, SDK ordering, legacy classification, policy compliance, review repair, and PR idempotency use this fail-closed path.
+
+## Candidate evaluator-optimizer gate
+
+Model-generated SDK/provider candidates first pass non-compensating deterministic schema, citation-provenance, and path-scope checks. An independent equal-or-stronger reviewer then scores correctness, evidence, tests, scope, and maintainability. Acceptance requires mean score `>= 0.85`, every dimension `>= 0.75`, and decision `pass`. A `block` decision stops immediately; `revise` permits at most two complete replacement candidates from the author route, each of which must repeat deterministic validation and independent evaluation. All scores, findings, routes, and diagnostics are stored in generation evidence.
 
 ## Online evaluation
 
-The scheduled/manual workflow calls the credential-free deployed `/v1/plans` endpoint. The API performs deterministic planning only and has no cloud, model, or GitHub credentials. Cases must be idempotent and tagged with run ID for correlation. The gate is:
+The scheduled/manual workflow uses two separated endpoints:
+
+- `OTC_AGENT_EVAL_URL` calls the credential-free deployed `/v1/plans` endpoint for deterministic planning.
+- `OTC_AGENT_WORKFLOW_EVAL_URL` calls a governed agent runner's `/v1/evaluations` endpoint for generation, compilation, repository-native tests, and same-PR comment iteration. The runner owns its model and narrowly scoped GitHub credentials; they are never passed to the planning API or evaluation client.
+
+Workflow responses must correlate the dataset case ID, report successful compilation and repository-native test evidence with SHA-256 digests, confirm an exact `/agent iterate` command updated the same PR using append-only history, and include end-to-end latency and model cost. These workflow cases are critical and non-compensating. The aggregate gate is:
 
 - task score `>= 0.85`;
 - regression from the last promoted baseline `<= 0.03`;
@@ -26,7 +36,7 @@ The scheduled/manual workflow calls the credential-free deployed `/v1/plans` end
 - mean model cost per successful task `<= $1.00`;
 - zero critical policy violations, secret leakage, unsupported API claims, or writes outside the sandbox.
 
-The provided online harness scores mapping, required stages, and safe behavior. Extend it with patch compilation/tests and a judge rubric only after deterministic checks. Any model-as-judge score must be calibrated against human labels, use blinded candidate ordering, and cannot override security/test failures.
+The online harness scores mapping, required stages, compilation, repository-native tests, comment iteration, latency, and cost. Any future model-as-judge score must be calibrated against human labels, use blinded candidate ordering, and cannot override security/test failures.
 
 ## Dataset hygiene
 
@@ -45,5 +55,7 @@ make offline-eval
 Run against a deployed HTTPS endpoint with:
 
 ```bash
-OTC_AGENT_EVAL_URL=https://agent.example.test make online-eval
+OTC_AGENT_EVAL_URL=https://planner.example.test \
+OTC_AGENT_WORKFLOW_EVAL_URL=https://workflow.example.test \
+make online-eval
 ```

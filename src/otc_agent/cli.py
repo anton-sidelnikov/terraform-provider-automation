@@ -37,7 +37,13 @@ from .publishing import (
 )
 from .review import build_review_bundle, build_review_history, run_independent_review
 from .resume import revalidate_resume_checkpoint
-from .routing import AuthorRouteIdentity, ModelRouter, parse_model_tier
+from .routing import (
+    author_route_from_environment,
+    AuthorRouteIdentity,
+    ModelRouter,
+    ModelTier,
+    parse_model_tier,
+)
 from .sdk_layout import analyze_sdk_layout
 from .sdk_refactor import (
     apply_operation_file_migration,
@@ -418,12 +424,15 @@ def main(argv: list[str] | None = None) -> int:
             after_issue_comment_id=state.issue_comment_cursor,
             after_review_comment_id=state.review_comment_cursor,
         )
+        author_route = (
+            author_route_from_environment(parse_model_tier(skill.model_tier))
+            if feedback.issue_comments or feedback.review_comments
+            else None
+        )
         classifications = classify_feedback(
             feedback=feedback,
             artifacts=artifacts,
-            model=model_from_environment()
-            if feedback.issue_comments or feedback.review_comments
-            else None,
+            model=author_route.build_model() if author_route else None,
             budget=Budget(
                 max_model_calls=skill.budget.max_model_calls,
                 max_input_tokens=skill.budget.max_input_tokens,
@@ -479,7 +488,7 @@ def main(argv: list[str] | None = None) -> int:
                 artifacts=artifacts,
                 current_patch=payload["current_patch"],
                 diagnostics=payload.get("diagnostics", []),
-                repair_model=model_from_environment(),
+                repair_model=author_route.build_model() if author_route else model_from_environment(),
                 reviewer_model=route.build_model(),
                 reviewer_route=route,
                 repair_budget=Budget(
@@ -629,6 +638,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "eval":
         endpoint = os.environ.get("OTC_AGENT_EVAL_URL") if args.mode == "online" else None
+        workflow_endpoint = os.environ.get("OTC_AGENT_WORKFLOW_EVAL_URL") if args.mode == "online" else None
         baseline_score = None
         if args.baseline:
             baseline_value = json.loads(args.baseline.read_text(encoding="utf-8"))
@@ -638,6 +648,7 @@ def main(argv: list[str] | None = None) -> int:
             catalog,
             mode=args.mode,
             endpoint=endpoint,
+            workflow_endpoint=workflow_endpoint,
             baseline_score=baseline_score,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -649,17 +660,37 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "generate-sdk":
         plan_value = json.loads(args.plan.read_text(encoding="utf-8"))
+        author_route = author_route_from_environment(ModelTier.STRONG)
+        evaluator_route = ModelRouter.from_environment().select_reviewer(
+            AuthorRouteIdentity(
+                author_route.model,
+                author_route.tier,
+                author_route.provider,
+                author_route.endpoint,
+            )
+        )
         record = generate_sdk_candidate(
             plan=plan_value,
             sdk_root=args.sdk_root,
             docs_root=args.docs_root,
             output_dir=args.output_dir,
-            model=model_from_environment(),
+            model=author_route.build_model(),
+            evaluator_model=evaluator_route.build_model(),
+            evaluator_route=evaluator_route,
         )
         print(json.dumps(record.as_dict(), sort_keys=True))
         return 0
     if args.command == "generate-provider":
         plan_value = json.loads(args.plan.read_text(encoding="utf-8"))
+        author_route = author_route_from_environment(ModelTier.STRONG)
+        evaluator_route = ModelRouter.from_environment().select_reviewer(
+            AuthorRouteIdentity(
+                author_route.model,
+                author_route.tier,
+                author_route.provider,
+                author_route.endpoint,
+            )
+        )
         record = generate_provider_candidate(
             plan=plan_value,
             provider_root=args.provider_root,
@@ -668,7 +699,9 @@ def main(argv: list[str] | None = None) -> int:
             sdk_revision=args.sdk_revision,
             sdk_pr_url=args.sdk_pr_url,
             output_dir=args.output_dir,
-            model=model_from_environment(),
+            model=author_route.build_model(),
+            evaluator_model=evaluator_route.build_model(),
+            evaluator_route=evaluator_route,
         )
         print(json.dumps(record.as_dict(), sort_keys=True))
         return 0

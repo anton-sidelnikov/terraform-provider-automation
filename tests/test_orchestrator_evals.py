@@ -1,6 +1,8 @@
+import json
 import unittest
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from otc_agent.catalog import Catalog, default_catalog_path
 from otc_agent.domain import ChangeKind, ChangeRequest, RunStatus
@@ -59,6 +61,96 @@ class OrchestratorAndEvalTests(unittest.TestCase):
         report = run_evaluation(Path("evals/offline.jsonl"), self.catalog, mode="offline")
         self.assertTrue(report.passed)
         self.assertEqual(report.score, 1.0)
+        self.assertEqual(report.cases, 11)
+        self.assertEqual(report.critical_failures, ())
+        self.assertEqual(report.as_dict()["schema_version"], 2)
+
+    def test_online_workflow_scores_validation_iteration_latency_and_cost(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            dataset = Path(directory) / "online.jsonl"
+            dataset.write_text(
+                json.dumps(
+                    {
+                        "id": "workflow",
+                        "suite": "workflow",
+                        "critical": True,
+                        "input": {"service": "apigw"},
+                        "expected": {"minimum_replies": 1},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            response = online_workflow_response()
+            with patch("otc_agent.evals._call_workflow_endpoint", return_value=response):
+                report = run_evaluation(
+                    dataset,
+                    self.catalog,
+                    mode="online",
+                    workflow_endpoint="https://workflow.example.test",
+                )
+
+        self.assertTrue(report.passed)
+        self.assertEqual(report.score, 1.0)
+        self.assertEqual(report.p95_latency_ms, 1250.0)
+        self.assertEqual(report.average_cost_usd, 0.25)
+
+    def test_online_workflow_critical_failure_is_non_compensating(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            dataset = Path(directory) / "online.jsonl"
+            dataset.write_text(
+                json.dumps(
+                    {
+                        "id": "workflow",
+                        "suite": "workflow",
+                        "critical": True,
+                        "input": {"service": "apigw"},
+                        "expected": {"minimum_replies": 1},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            response = online_workflow_response()
+            response["iteration"]["same_pull_request"] = False
+            with patch("otc_agent.evals._call_workflow_endpoint", return_value=response):
+                report = run_evaluation(
+                    dataset,
+                    self.catalog,
+                    mode="online",
+                    workflow_endpoint="https://workflow.example.test",
+                )
+
+        self.assertGreater(report.score, 0.85)
+        self.assertFalse(report.passed)
+        self.assertEqual(len(report.critical_failures), 1)
+
+def online_workflow_response() -> dict[str, object]:
+    return {
+        "case_id": "workflow",
+        "status": "passed",
+        "validation": {
+            "compilation": {
+                "status": "passed",
+                "command": "go test -run '^$' ./...",
+                "sha256": "a" * 64,
+            },
+            "repository_tests": {
+                "status": "passed",
+                "native": True,
+                "command": "go test ./...",
+                "sha256": "b" * 64,
+            },
+        },
+        "iteration": {
+            "status": "completed",
+            "command": "/agent iterate",
+            "same_pull_request": True,
+            "append_only": True,
+            "replied_comments": 1,
+        },
+        "metrics": {"latency_ms": 1250, "cost_usd": 0.25},
+    }
 
 
 if __name__ == "__main__":

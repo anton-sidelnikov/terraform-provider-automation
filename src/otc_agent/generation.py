@@ -12,7 +12,10 @@ from .budget import Budget
 from .model import ModelResult, StructuredModel
 from .patching import PatchPolicy, apply_patch, provider_policy, repository_diff, sdk_policy, validate_patch
 from .policy import default_policy_root, load_policy_registry
+from .quality import run_evaluator_optimizer_gate
 from .retrieval import EvidenceChunk, retrieve_api_reference
+from .sdk_guidance import PinnedSDKSource, render_sdk_guidance, retrieve_sdk_guidance
+from .routing import ModelRoute
 from .skill import default_skill_registry_path, find_skill, load_skill_registry, skill_identity
 from .workflow import ArtifactChain, FrozenArtifact, WORKFLOW_VERSION, WorkflowStage
 
@@ -51,6 +54,8 @@ class GenerationEvidence:
     assumptions: tuple[str, ...]
     citations: tuple[dict[str, object], ...]
     retrieved_evidence: tuple[dict[str, object], ...]
+    repository_guidance: tuple[dict[str, object], ...]
+    quality_gate: dict[str, object] | None
     commands: tuple[CommandEvidence, ...]
 
     def as_dict(self) -> dict[str, object]:
@@ -64,6 +69,8 @@ def generate_sdk_candidate(
     docs_root: Path,
     output_dir: Path,
     model: StructuredModel,
+    evaluator_model: StructuredModel | None = None,
+    evaluator_route: ModelRoute | None = None,
 ) -> GenerationEvidence:
     mapping = _mapping(plan)
     service = _required_name(mapping, "sdk")
@@ -71,10 +78,18 @@ def generate_sdk_candidate(
     policy = sdk_policy(service)
     query = _query(plan)
     evidence = _retrieve(docs_root, mapping["docs"], query)
+    repository_revision = _git_revision(sdk_root)
+    guidance = retrieve_sdk_guidance(
+        sdk_root,
+        repository_revision,
+        target_service=service,
+        query=query,
+    )
     code_context = _collect_code_context(
         sdk_root,
-        [f"openstack/{service}", "openstack/apigw/v2", "openstack/fgs/v2"],
+        [f"openstack/{service}"],
     )
+    code_context = "\n\n".join(item for item in (code_context, render_sdk_guidance(guidance)) if item)
     instructions = f"""
 Generate a complete gophertelekomcloud SDK change for service package {service!r}.
 Change classification: {classification}.
@@ -93,8 +108,11 @@ Follow repository style, using APIGW/FGS only as structural examples; the cited 
         docs_root=docs_root,
         output_dir=output_dir,
         model=model,
+        evaluator_model=evaluator_model,
+        evaluator_route=evaluator_route,
         policy=policy,
         evidence=evidence,
+        repository_guidance=guidance,
         code_context=code_context,
         instructions=instructions,
         format_paths_prefix=f"openstack/{service}/",
@@ -115,6 +133,8 @@ def generate_provider_candidate(
     sdk_pr_url: str,
     output_dir: Path,
     model: StructuredModel,
+    evaluator_model: StructuredModel | None = None,
+    evaluator_route: ModelRoute | None = None,
 ) -> GenerationEvidence:
     mapping = _mapping(plan)
     service = _required_name(mapping, "provider")
@@ -157,8 +177,11 @@ documentation consistent with existing services, and a Reno release note. The pr
         docs_root=docs_root,
         output_dir=output_dir,
         model=model,
+        evaluator_model=evaluator_model,
+        evaluator_route=evaluator_route,
         policy=policy,
         evidence=evidence,
+        repository_guidance=(),
         code_context=code_context,
         instructions=instructions,
         format_paths_prefix="opentelekomcloud/",
@@ -189,8 +212,11 @@ def _generate(
     docs_root: Path,
     output_dir: Path,
     model: StructuredModel,
+    evaluator_model: StructuredModel | None,
+    evaluator_route: ModelRoute | None,
     policy: PatchPolicy,
     evidence: list[EvidenceChunk],
+    repository_guidance: tuple[PinnedSDKSource, ...],
     code_context: str,
     instructions: str,
     format_paths_prefix: str,
@@ -212,6 +238,7 @@ def _generate(
             "documentation_revision": documentation_revision,
             "classification": _classification_kind(plan),
             "retrieved_evidence": [chunk.metadata() for chunk in evidence],
+            "repository_guidance": [source.metadata() for source in repository_guidance],
             "code_context_sha256": hashlib.sha256(code_context.encode("utf-8")).hexdigest(),
         },
     )
@@ -239,6 +266,30 @@ def _generate(
         user=_user_prompt(plan, instructions, evidence, code_context),
         budget=budget,
     )
+    quality_gate = None
+    if evaluator_model is not None and evaluator_route is not None:
+        outcome = run_evaluator_optimizer_gate(
+            initial=result,
+            frozen_context={
+                "plan": plan,
+                "instructions_sha256": hashlib.sha256(instructions.encode("utf-8")).hexdigest(),
+                "repository_revision": repository_revision,
+                "documentation_revision": documentation_revision,
+            },
+            validator=lambda candidate: _quality_diagnostics(candidate, evidence, policy),
+            optimizer_model=model,
+            evaluator_model=evaluator_model,
+            evaluator_route=evaluator_route,
+            optimizer_budget=budget,
+            evaluator_budget=Budget(
+                max_model_calls=3,
+                max_input_tokens=250_000,
+                max_output_tokens=80_000,
+                max_cost_usd=30,
+            ),
+        )
+        result = outcome.candidate
+        quality_gate = outcome.as_dict()
     patch, summary, assumptions, citations = _validate_model_result(result, evidence)
     chain.append(
         WorkflowStage.IMPLEMENT,
@@ -248,6 +299,7 @@ def _generate(
             "assumptions": list(assumptions),
             "citations": list(citations),
             "candidate_patch_sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
+            "quality_gate": quality_gate,
         },
     )
     changed = apply_patch(repository_root, patch, policy)
@@ -300,7 +352,7 @@ def _generate(
     )
     workflow_artifacts = chain.finish()
     record = GenerationEvidence(
-        schema_version=3,
+        schema_version=5,
         stage=stage,
         skill=skill,
         policies=policies,
@@ -320,6 +372,8 @@ def _generate(
         assumptions=assumptions,
         citations=citations,
         retrieved_evidence=tuple(chunk.metadata() for chunk in evidence),
+        repository_guidance=tuple(source.metadata() for source in repository_guidance),
+        quality_gate=quality_gate,
         commands=tuple(commands),
     )
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -328,6 +382,23 @@ def _generate(
         json.dumps(record.as_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return record
+
+
+def _quality_diagnostics(
+    candidate: ModelResult,
+    evidence: list[EvidenceChunk],
+    policy: PatchPolicy,
+) -> list[dict[str, object]]:
+    patch, _summary, _assumptions, _citations = _validate_model_result(candidate, evidence)
+    paths = validate_patch(patch, policy)
+    return [
+        {
+            "tool": "candidate.schema-citations-paths",
+            "status": "passed",
+            "summary": f"validated {len(paths)} changed paths and citation provenance",
+            "sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
+        }
+    ]
 
 
 def _governance_evidence(skill_id: str) -> tuple[dict[str, object], tuple[dict[str, object], ...]]:
