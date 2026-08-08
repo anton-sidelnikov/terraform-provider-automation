@@ -34,7 +34,7 @@ uv run otc-agent migrate-state --postgres-dsn postgresql://user:password@host/ot
 
 `make lint` runs Ruff from the locked environment; `make verify` runs compilation, tests, policy/skill checks, and offline evaluation. `make check` runs both.
 
-Both entry points automatically load `.env` from the current working directory without overriding variables already present in the process environment. Use `--env-file <path>` to select another regular file; `.env.example` lists supported settings. Durable state prefers PostgreSQL and otherwise uses local MySQL. `migrate-state` copies all MySQL durable-state tables to PostgreSQL transactionally and can read both DSNs from the environment.
+Both entry points automatically load the nearest `.env` from the current directory or its parents without overriding variables already present in the process environment. Use `--env-file <path>` to select another regular file; `.env.example` lists supported settings. The loader uses only the Python standard library so the planning API image remains dependency-free. Durable state prefers PostgreSQL and otherwise uses local MySQL. `migrate-state` copies all MySQL durable-state tables to PostgreSQL transactionally and can read both DSNs from the environment.
 
 `otc-agent` is the local generation CLI. `otc-agent-api` is the dependency-minimal remote planning entrypoint used by the container. The service exposes `POST /v1/plans`, `GET /healthz`, `GET /readyz`, and Prometheus-format `GET /metrics`.
 

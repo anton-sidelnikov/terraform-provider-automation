@@ -12,7 +12,9 @@ class EnvironmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".env"
             path.write_text(
-                "OTC_MODEL_NAME=from-file\nOTC_POSTGRES_DSN=postgresql://db/agent\n",
+                "export OTC_MODEL_NAME=from-file\n"
+                "OTC_POSTGRES_DSN='postgresql://db/agent'\n"
+                'OTC_QUOTED_VALUE="line\\nvalue"\n',
                 encoding="utf-8",
             )
             with patch.dict(os.environ, {"OTC_MODEL_NAME": "from-process"}, clear=True):
@@ -21,3 +23,4 @@ class EnvironmentTests(unittest.TestCase):
                 self.assertEqual(loaded, path.resolve())
                 self.assertEqual(os.environ["OTC_MODEL_NAME"], "from-process")
                 self.assertEqual(os.environ["OTC_POSTGRES_DSN"], "postgresql://db/agent")
+                self.assertEqual(os.environ["OTC_QUOTED_VALUE"], "line\nvalue")
