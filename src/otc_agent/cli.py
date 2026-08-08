@@ -16,6 +16,18 @@ from .model import model_from_environment
 from .orchestrator import Planner
 from .patching import provider_policy, sdk_policy, validate_patch
 from .policy import PolicyContract, default_policy_root, load_policy_registry
+from .pr_iteration import (
+    append_repair_commit,
+    authorize_iteration,
+    classify_feedback,
+    complete_iteration_state,
+    fetch_incremental_feedback,
+    find_iteration_command,
+    generate_reviewed_repair,
+    load_iteration_artifacts,
+    load_iteration_state,
+    reply_to_addressed_feedback,
+)
 from .publishing import (
     build_sdk_pull_request_body,
     build_publication_metadata,
@@ -345,7 +357,189 @@ def main(argv: list[str] | None = None) -> int:
         }
         _write_json(result, args.output)
         return 0
-    if args.command in {"spec", "verify", "iterate-pr", "resume"}:
+    if args.command == "iterate-pr":
+        policies, skills = _skill_contracts()
+        skill = find_skill(skills, "iterate-pr")
+        payload = json.loads(args.input.read_text(encoding="utf-8"))
+        validate_skill_input(skill, payload)
+        command = find_iteration_command(payload["comments"])
+        metadata = authorize_iteration(
+            command=command,
+            repository=payload["repository"],
+            pull_request=payload["pull_request"],
+            head_branch=payload["head_branch"],
+            pull_request_body=payload["pull_request_body"],
+        )
+        state_path = Path(payload["state_path"])
+        state = load_iteration_state(
+            state_path,
+            run_id=payload["run_id"],
+            repository=payload["repository"],
+            pull_request=payload["pull_request"],
+        )
+        completed = state.completed_commands.get(str(command.comment_id))
+        if completed is not None:
+            _write_json(
+                {
+                    "status": "already_processed",
+                    "skill": skill_identity(skill, policies),
+                    "run_id": payload["run_id"],
+                    "pull_request": payload["pull_request"],
+                    "command": command.as_dict(),
+                    "completion": completed,
+                    "state": state.as_dict(),
+                },
+                args.output,
+            )
+            return 0
+        artifacts = load_iteration_artifacts(Path(payload["artifact"]), metadata)
+        feedback = fetch_incremental_feedback(
+            repository=payload["repository"],
+            pull_request=payload["pull_request"],
+            after_issue_comment_id=state.issue_comment_cursor,
+            after_review_comment_id=state.review_comment_cursor,
+        )
+        classifications = classify_feedback(
+            feedback=feedback,
+            artifacts=artifacts,
+            model=model_from_environment()
+            if feedback.issue_comments or feedback.review_comments
+            else None,
+            budget=Budget(
+                max_model_calls=skill.budget.max_model_calls,
+                max_input_tokens=skill.budget.max_input_tokens,
+                max_output_tokens=skill.budget.max_output_tokens,
+                max_cost_usd=skill.budget.max_cost_usd,
+                max_wall_seconds=skill.budget.max_wall_seconds,
+            ),
+        )
+        repair = None
+        repair_commit = None
+        replies = ()
+        if any(item.category == "actionable" for item in classifications.classifications):
+            if payload["stage"] not in {"sdk", "provider"}:
+                raise ValueError("iteration stage must be sdk or provider")
+            author_skill = artifacts.evidence.get("skill")
+            if not isinstance(author_skill, dict):
+                raise ValueError("iteration artifact is missing author skill identity")
+            author_model = artifacts.evidence.get("model")
+            if not isinstance(author_model, str) or not author_model:
+                raise ValueError("iteration artifact is missing author model identity")
+            route = ModelRouter.from_environment().select_reviewer(
+                AuthorRouteIdentity(
+                    model=author_model,
+                    tier=parse_model_tier(author_skill.get("model_tier")),
+                    provider=artifacts.evidence.get("model_provider")
+                    if isinstance(artifacts.evidence.get("model_provider"), str)
+                    else None,
+                    endpoint=artifacts.evidence.get("model_endpoint")
+                    if isinstance(artifacts.evidence.get("model_endpoint"), str)
+                    else None,
+                )
+            )
+            patch_policy = (
+                sdk_policy(payload["service"])
+                if payload["stage"] == "sdk"
+                else provider_policy(payload["service"])
+            )
+
+            def validate_iteration_repair(patch: str, _iteration: int) -> list[object]:
+                paths = validate_patch(patch, patch_policy)
+                return [
+                    {
+                        "tool": "patch.validate",
+                        "status": "passed",
+                        "summary": f"validated {len(paths)} changed paths",
+                        "sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
+                    }
+                ]
+
+            repair = generate_reviewed_repair(
+                feedback=feedback,
+                classifications=classifications,
+                artifacts=artifacts,
+                current_patch=payload["current_patch"],
+                diagnostics=payload.get("diagnostics", []),
+                repair_model=model_from_environment(),
+                reviewer_model=route.build_model(),
+                reviewer_route=route,
+                repair_budget=Budget(
+                    max_model_calls=1,
+                    max_input_tokens=skill.budget.max_input_tokens,
+                    max_output_tokens=skill.budget.max_output_tokens,
+                    max_cost_usd=skill.budget.max_cost_usd,
+                    max_wall_seconds=skill.budget.max_wall_seconds,
+                ),
+                reviewer_budget=Budget(
+                    max_model_calls=1,
+                    max_input_tokens=skill.budget.max_input_tokens,
+                    max_output_tokens=skill.budget.max_output_tokens,
+                    max_cost_usd=skill.budget.max_cost_usd,
+                    max_wall_seconds=skill.budget.max_wall_seconds,
+                ),
+                validate_repair=validate_iteration_repair,
+            )
+            if repair and repair.status == "approved":
+                source_revisions = metadata.get("source_revisions")
+                if not isinstance(source_revisions, dict):
+                    raise ValueError("pull request metadata is missing source revisions")
+                base_sha = source_revisions.get("base")
+                if not isinstance(base_sha, str):
+                    raise ValueError("pull request metadata is missing its base revision")
+                for field in ("worktree", "previous_head_sha", "commit_message"):
+                    if not isinstance(payload.get(field), str) or not payload[field]:
+                        raise ValueError(f"approved repair requires {field}")
+                repair_commit = append_repair_commit(
+                    worktree=Path(payload["worktree"]),
+                    branch=payload["head_branch"],
+                    base_sha=base_sha,
+                    previous_head_sha=payload["previous_head_sha"],
+                    current_patch=payload["current_patch"],
+                    replacement_patch=repair.patch,
+                    commit_message=payload["commit_message"],
+                )
+                replies = reply_to_addressed_feedback(
+                    repository=payload["repository"],
+                    pull_request=payload["pull_request"],
+                    feedback=feedback,
+                    classifications=classifications,
+                    repair=repair,
+                    commit=repair_commit,
+                )
+        status = (
+            "repair_approved"
+            if repair and repair.status == "approved"
+            else "repair_blocked"
+            if repair
+            else "feedback_classified"
+        )
+        state = complete_iteration_state(
+            state_path,
+            state=state,
+            command=command,
+            feedback=feedback,
+            repair_commit=repair_commit,
+            replies=replies,
+            status=status,
+        )
+        result = {
+            "status": status,
+            "skill": skill_identity(skill, policies),
+            "run_id": payload["run_id"],
+            "pull_request": payload["pull_request"],
+            "command": command.as_dict(),
+            "metadata": metadata,
+            "artifacts": artifacts.as_dict(),
+            "feedback": feedback.as_dict(),
+            "classifications": classifications.as_dict(),
+            "repair": repair.as_dict() if repair else None,
+            "repair_commit": repair_commit.as_dict() if repair_commit else None,
+            "replies": [reply.as_dict() for reply in replies],
+            "state": state.as_dict(),
+        }
+        _write_json(result, args.output)
+        return 0
+    if args.command in {"spec", "verify", "resume"}:
         policies, skills = _skill_contracts()
         skill = find_skill(skills, args.command)
         payload = json.loads(args.input.read_text(encoding="utf-8"))
