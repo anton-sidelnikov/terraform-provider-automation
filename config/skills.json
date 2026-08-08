@@ -120,13 +120,13 @@
     },
     {
       "id": "resume",
-      "version": 1,
+      "version": 3,
       "description": "Resume a run from its last verified checkpoint after revalidating immutable inputs.",
       "stage": "control",
       "model_tier": "none",
       "policies": [{"id": "security", "minimum_version": 1}, {"id": "review", "minimum_version": 1}],
-      "input_schema": {"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"]},
-      "output_schema": {"type": "object", "properties": {"stage": {"type": "string"}, "status": {"type": "string"}, "checkpoint": {"type": "object"}}, "required": ["stage", "status", "checkpoint"]},
+      "input_schema": {"type": "object", "properties": {"run_id": {"type": "string"}, "repository_root": {"type": "string"}, "artifact": {"type": "string"}, "documentation_root": {"type": "string"}}, "required": ["run_id", "repository_root", "artifact"]},
+      "output_schema": {"type": "object", "properties": {"stage": {"type": "string"}, "status": {"type": "string"}, "checkpoint": {"type": "object"}, "validation": {"type": "object"}}, "required": ["stage", "status", "checkpoint", "validation"]},
       "tools": ["state.read", "artifact.verify", "repository.revision-check"],
       "budget": {"max_model_calls": 0, "max_input_tokens": 0, "max_output_tokens": 0, "max_cost_usd": 0, "max_wall_seconds": 120},
       "retry": {"max_attempts": 2, "retryable": ["database_timeout", "github_read_timeout"]}

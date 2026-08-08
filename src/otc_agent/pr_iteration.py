@@ -117,6 +117,7 @@ class RepairCommit:
     previous_head_sha: str
     commit_sha: str
     push_mode: str
+    replayed: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -469,8 +470,18 @@ def append_repair_commit(
     command_runner = runner or subprocess.run
     current_branch = _git_output(command_runner, worktree, "branch", "--show-current")
     current_head = _git_output(command_runner, worktree, "rev-parse", "HEAD")
-    if current_branch != branch or current_head != previous_head_sha:
-        raise PRIterationError("repair worktree does not match the published branch head")
+    if current_branch != branch:
+        raise PRIterationError("repair worktree does not match the published branch")
+    if current_head != previous_head_sha:
+        return _reconcile_repair_commit(
+            runner=command_runner,
+            worktree=worktree,
+            branch=branch,
+            base_sha=base_sha,
+            previous_head_sha=previous_head_sha,
+            current_head=current_head,
+            replacement_patch=replacement_patch,
+        )
     if _git_output(command_runner, worktree, "status", "--porcelain"):
         raise PRIterationError("repair worktree must be clean")
     _git_patch(command_runner, worktree, current_patch, "--check", "--reverse")
@@ -509,8 +520,49 @@ def append_repair_commit(
     return RepairCommit(branch, previous_head_sha, commit_sha, history.push_mode)
 
 
+def _reconcile_repair_commit(
+    *,
+    runner: CommandRunner,
+    worktree: Path,
+    branch: str,
+    base_sha: str,
+    previous_head_sha: str,
+    current_head: str,
+    replacement_patch: str,
+) -> RepairCommit:
+    parent = _git_output(runner, worktree, "rev-parse", f"{current_head}^")
+    if parent != previous_head_sha:
+        raise PRIterationError("repair branch contains an unexpected non-append-only commit")
+    actual_patch = _git_output(runner, worktree, "diff", base_sha, current_head)
+    if actual_patch.strip() != replacement_patch.strip():
+        raise PRIterationError("existing repair commit does not match the approved replacement patch")
+    try:
+        history = verify_append_only_history(
+            worktree=worktree,
+            base_sha=base_sha,
+            candidate_head_sha=current_head,
+            previous_head_sha=previous_head_sha,
+            runner=runner,
+        )
+    except PublicationError as exc:
+        raise PRIterationError(str(exc)) from exc
+    remote = _run_git(
+        runner,
+        worktree,
+        "ls-remote",
+        "--heads",
+        "origin",
+        f"refs/heads/{branch}",
+    ).stdout.strip()
+    remote_sha = remote.split(maxsplit=1)[0] if remote else None
+    if remote_sha != current_head:
+        _run_git(runner, worktree, "push", "origin", f"HEAD:refs/heads/{branch}")
+    return RepairCommit(branch, previous_head_sha, current_head, history.push_mode, True)
+
+
 def reply_to_addressed_feedback(
     *,
+    run_id: str,
     repository: str,
     pull_request: int,
     feedback: IncrementalFeedback,
@@ -539,14 +591,33 @@ def reply_to_addressed_feedback(
     command_runner = runner or subprocess.run
     replies: list[FeedbackReply] = []
     for comment in comments:
+        marker = _feedback_reply_marker(
+            run_id,
+            repository,
+            pull_request,
+            comment,
+            commit.commit_sha,
+            repair.patch_sha256,
+        )
         endpoint = (
             f"repos/{repository}/pulls/{pull_request}/comments/{comment.comment_id}/replies"
             if comment.kind == "review"
             else f"repos/{repository}/issues/{pull_request}/comments"
         )
+        existing = _find_existing_feedback_reply(
+            command_runner,
+            repository,
+            pull_request,
+            comment.kind,
+            marker,
+        )
+        if existing is not None:
+            replies.append(FeedbackReply(comment.comment_id, comment.kind, existing[0], existing[1]))
+            continue
+        marked_message = f"{message}\n\n{marker}"
         value = _run_gh_json(
             command_runner,
-            ["gh", "api", "--method", "POST", endpoint, "-f", f"body={message}"],
+            ["gh", "api", "--method", "POST", endpoint, "-f", f"body={marked_message}"],
         )
         if not isinstance(value, dict):
             raise PRIterationError("GitHub feedback reply response must be an object")
@@ -556,6 +627,69 @@ def reply_to_addressed_feedback(
             raise PRIterationError("GitHub feedback reply response has an invalid schema")
         replies.append(FeedbackReply(comment.comment_id, comment.kind, reply_id, url))
     return tuple(replies)
+
+
+def _feedback_reply_marker(
+    run_id: str,
+    repository: str,
+    pull_request: int,
+    comment: FeedbackComment,
+    commit_sha: str,
+    patch_sha256: str,
+) -> str:
+    identity = json.dumps(
+        {
+            "run_id": run_id,
+            "repository": repository,
+            "pull_request": pull_request,
+            "comment_id": comment.comment_id,
+            "kind": comment.kind,
+            "commit_sha": commit_sha,
+            "patch_sha256": patch_sha256,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return f"<!-- otc-agent-write:{digest} -->"
+
+
+def _find_existing_feedback_reply(
+    runner: CommandRunner,
+    repository: str,
+    pull_request: int,
+    kind: str,
+    marker: str,
+) -> tuple[int, str] | None:
+    resource = "pulls" if kind == "review" else "issues"
+    for page in range(1, 101):
+        value = _run_gh_json(
+            runner,
+            [
+                "gh",
+                "api",
+                "--method",
+                "GET",
+                f"repos/{repository}/{resource}/{pull_request}/comments",
+                "-f",
+                "per_page=100",
+                "-f",
+                f"page={page}",
+            ],
+        )
+        if not isinstance(value, list):
+            raise PRIterationError("GitHub feedback reconciliation response must be an array")
+        for item in value:
+            if not isinstance(item, dict) or marker not in str(item.get("body", "")):
+                continue
+            reply_id = item.get("id")
+            url = item.get("html_url")
+            if not isinstance(reply_id, int) or isinstance(reply_id, bool) or not isinstance(url, str):
+                raise PRIterationError("reconciled GitHub feedback reply has an invalid schema")
+            return reply_id, url
+        if len(value) < 100:
+            return None
+    raise PRIterationError("GitHub feedback reconciliation exceeds the pagination limit")
 
 
 def load_iteration_state(

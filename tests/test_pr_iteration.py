@@ -475,12 +475,17 @@ class PRIterationTests(unittest.TestCase):
             self.assertEqual(outcome.status, "approved")
             self.assertEqual(outcome.patch, replacement)
             calls: list[list[str]] = []
+            posted_body = ""
 
             def reply_runner(
                 arguments: list[str],
                 **_kwargs: object,
             ) -> subprocess.CompletedProcess[str]:
+                nonlocal posted_body
                 calls.append(arguments)
+                if "GET" in arguments:
+                    return subprocess.CompletedProcess(arguments, 0, "[]", "")
+                posted_body = next(item.removeprefix("body=") for item in arguments if item.startswith("body="))
                 return subprocess.CompletedProcess(
                     arguments,
                     0,
@@ -494,6 +499,7 @@ class PRIterationTests(unittest.TestCase):
                 )
 
             replies = reply_to_addressed_feedback(
+                run_id="run-123",
                 repository="example/repo",
                 pull_request=42,
                 feedback=feedback,
@@ -509,12 +515,52 @@ class PRIterationTests(unittest.TestCase):
             )
 
             self.assertEqual(replies[0].comment_id, 31)
+            post_call = next(call for call in calls if "POST" in call)
             self.assertTrue(
-                any("pulls/42/comments/31/replies" in argument for argument in calls[0])
+                any("pulls/42/comments/31/replies" in argument for argument in post_call)
             )
-            body_argument = next(item for item in calls[0] if item.startswith("body="))
+            body_argument = next(item for item in post_call if item.startswith("body="))
             self.assertIn("`" + "b" * 40 + "`", body_argument)
             self.assertIn(outcome.patch_sha256, body_argument)
+            existing_runner_calls: list[list[str]] = []
+
+            def existing_runner(
+                arguments: list[str],
+                **_kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                existing_runner_calls.append(arguments)
+                return subprocess.CompletedProcess(
+                    arguments,
+                    0,
+                    json.dumps(
+                        [
+                            {
+                                "id": 99,
+                                "body": posted_body,
+                                "html_url": "https://github.com/example/repo/pull/42#discussion_r99",
+                            }
+                        ]
+                    ),
+                    "",
+                )
+
+            reconciled = reply_to_addressed_feedback(
+                run_id="run-123",
+                repository="example/repo",
+                pull_request=42,
+                feedback=feedback,
+                classifications=classifications,
+                repair=outcome,
+                commit=RepairCommit(
+                    "agent/fix-widget",
+                    "a" * 40,
+                    "b" * 40,
+                    "fast-forward-only",
+                ),
+                runner=existing_runner,
+            )
+            self.assertEqual(reconciled[0].reply_id, 99)
+            self.assertFalse(any("POST" in call for call in existing_runner_calls))
 
     def test_appends_and_pushes_repair_commit_without_force(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -559,6 +605,17 @@ class PRIterationTests(unittest.TestCase):
                 git(remote.parent, "--git-dir", str(remote), "rev-parse", "refs/heads/agent/fix-widget"),
                 result.commit_sha,
             )
+            replay = append_repair_commit(
+                worktree=root,
+                branch="agent/fix-widget",
+                base_sha=base_sha,
+                previous_head_sha=previous_head_sha,
+                current_patch=current_patch,
+                replacement_patch=replacement_patch,
+                commit_message="Address review feedback",
+            )
+            self.assertTrue(replay.replayed)
+            self.assertEqual(replay.commit_sha, result.commit_sha)
 
     def test_remote_write_policy_rejects_pr_lifecycle_and_force_pushes(self) -> None:
         validate_iteration_write_command(

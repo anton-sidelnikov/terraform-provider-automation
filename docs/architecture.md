@@ -95,3 +95,11 @@ Store run state in PostgreSQL with optimistic transitions and idempotency keys. 
 ## Deployment
 
 Run generation, retrieval, review, repair, and publishing through the local CLI. The only Kubernetes workload is the optional stateless planning/health/metrics API for remote clients and online evaluation. It receives no model or publishing credentials and uses default-deny egress. Durable local execution may later use external PostgreSQL and object storage, but those services are not part of the planning API deployment.
+
+Durable CLI execution prefers an external PostgreSQL state store when `OTC_POSTGRES_DSN` is configured. Otherwise it falls back to local MySQL, using `OTC_MYSQL_DSN` or the `OTC_MYSQL_*` settings (default host `127.0.0.1`, port `3306`, user `root`, database `otc_agent`). Equivalent packaged migrations record runs, every stage attempt and artifact link, source and branch revisions, approvals, pull requests, comments, and repair attempts. The remote planning API remains stateless and does not connect to either database.
+
+Run transitions use a compare-and-swap version on the run row and a durable idempotency key bound to the operation and canonical request digest. A stale expected version fails atomically. Retrying the same key and request returns the stored transition result, while reusing a key for different input is rejected. PostgreSQL provides the primary implementation and local MySQL preserves equivalent behavior.
+
+GitHub webhooks enter an idempotent durable inbox keyed by delivery ID. Workers claim ready events transactionally with row locking, dispatch only registered event types, and either record a completed JSON result or requeue with a delay. Attempts are bounded; exhausted or permanently unsupported events enter `dead_letter` with their last error for operator inspection. PostgreSQL and MySQL migrations provide equivalent queue tables and indexes.
+
+Temporal adoption is currently deferred. The existing database executor covers required durability, concurrency, retry, resume, reconciliation, and event-queue behavior while preserving local MySQL operation. The decision, tradeoffs, and measurable adoption triggers are recorded in [the Temporal evaluation](decisions/temporal.md).
